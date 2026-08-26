@@ -1,6 +1,44 @@
 import { Bot, Send } from "lucide-react";
+import { useEffect, useState } from "react";
+import type { FormEvent } from "react";
+
+import { askAssistant, getComponents } from "../api";
+import type { ApiComponent } from "../api";
 
 function Assistant() {
+  const [components, setComponents] = useState<ApiComponent[]>([]);
+  const [componentId, setComponentId] = useState<number | null>(null);
+  const [question, setQuestion] = useState("");
+  const [answer, setAnswer] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(false);
+
+  useEffect(() => {
+    getComponents()
+      .then((loadedComponents) => {
+        setComponents(loadedComponents);
+        setComponentId(loadedComponents[0]?.id ?? null);
+      })
+      .catch((requestError: Error) => setError(requestError.message));
+  }, []);
+
+  const handleSubmit = async (event: FormEvent) => {
+    event.preventDefault();
+    if (!componentId || !question.trim()) return;
+
+    setIsLoading(true);
+    setError(null);
+    try {
+      const response = await askAssistant(componentId, question.trim());
+      setAnswer(response.message);
+      setQuestion("");
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : "Request failed");
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   return (
     <main className="page-content">
       <div className="page-heading">
@@ -26,13 +64,37 @@ function Assistant() {
           </p>
         </div>
 
-        <div className="chat-input">
-          <input placeholder="Ask CircuitLoop..." />
+        {components.length > 0 && (
+          <label>
+            Component
+            <select
+              value={componentId ?? ""}
+              onChange={(event) => setComponentId(Number(event.target.value))}
+            >
+              {components.map((component) => (
+                <option value={component.id} key={component.id}>
+                  {component.name ?? `${component.type} #${component.id}`}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
 
-          <button>
+        {answer && <p>{answer}</p>}
+        {error && <p>{error}</p>}
+
+        <form className="chat-input" onSubmit={handleSubmit}>
+          <input
+            placeholder={components.length ? "Ask CircuitLoop..." : "Add a component first"}
+            value={question}
+            onChange={(event) => setQuestion(event.target.value)}
+            disabled={!componentId || isLoading}
+          />
+
+          <button type="submit" disabled={!componentId || !question.trim() || isLoading}>
             <Send size={18} />
           </button>
-        </div>
+        </form>
       </section>
     </main>
   );

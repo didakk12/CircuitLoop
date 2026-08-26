@@ -1,7 +1,26 @@
 import { Cpu, Search } from "lucide-react";
-import { mockScan } from "../data/mockScan";
+import { useEffect, useState } from "react";
+
+import { getComponents } from "../api";
+import type { ApiComponent } from "../api";
 
 function Components() {
+  const [components, setComponents] = useState<ApiComponent[]>([]);
+  const [search, setSearch] = useState("");
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    getComponents()
+      .then(setComponents)
+      .catch((requestError: Error) => setError(requestError.message));
+  }, []);
+
+  const filteredComponents = components.filter((component) =>
+    `${component.name ?? ""} ${component.type}`
+      .toLowerCase()
+      .includes(search.toLowerCase()),
+  );
+
   return (
     <main className="page-content">
       <div className="page-heading">
@@ -15,16 +34,20 @@ function Components() {
       <div className="component-toolbar">
         <div className="search-box">
           <Search size={17} />
-          <input placeholder="Search components..." />
+          <input
+            placeholder="Search components..."
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
+          />
         </div>
 
         <span>
-          {mockScan.components.length} components
+          {error ?? `${filteredComponents.length} components`}
         </span>
       </div>
 
       <div className="component-grid">
-        {mockScan.components.map((component) => (
+        {filteredComponents.map((component) => (
           <div className="component-card" key={component.id}>
             <div className="component-card-top">
               <div className="component-icon">
@@ -32,16 +55,16 @@ function Components() {
               </div>
 
               <span
-                className={`priority priority-${component.salvagePriority}`}
+                className={`priority priority-${component.status === "not_tested" ? "medium" : "high"}`}
               >
-                {component.salvagePriority} priority
+                {component.status.replace("_", " ")}
               </span>
             </div>
 
-            <h4>{component.id}</h4>
+            <h4>{component.name ?? `Component ${component.id}`}</h4>
 
             <p className="component-type">
-              {component.value || component.type}
+              {component.type}
             </p>
 
             <div className="component-confidence">

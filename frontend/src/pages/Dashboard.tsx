@@ -3,10 +3,22 @@ import {
   ScanLine,
   Upload,
 } from "lucide-react";
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
+
+import { getDashboardStats } from "../api";
+import type { DashboardStats } from "../api";
 
 function Dashboard() {
   const navigate = useNavigate();
+  const [stats, setStats] = useState<DashboardStats | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    getDashboardStats()
+      .then(setStats)
+      .catch((requestError: Error) => setError(requestError.message));
+  }, []);
 
   return (
     <main className="page-content">
@@ -52,26 +64,26 @@ function Dashboard() {
       <section className="stats-grid">
         <div className="stat-card">
           <span>PCBs scanned</span>
-          <strong>0</strong>
-          <small>Start your first scan</small>
+          <strong>{stats?.total_scans ?? "-"}</strong>
+          <small>{error ?? "Connected to backend"}</small>
         </div>
 
         <div className="stat-card">
           <span>Components identified</span>
-          <strong>0</strong>
+          <strong>{stats?.total_components ?? "-"}</strong>
           <small>AI detection results</small>
         </div>
 
         <div className="stat-card">
           <span>Components tested</span>
-          <strong>0</strong>
+          <strong>{stats?.tested_components ?? "-"}</strong>
           <small>Hardware verification</small>
         </div>
 
         <div className="stat-card">
           <span>Potentially salvageable</span>
-          <strong>0</strong>
-          <small>Based on current results</small>
+          <strong>{stats?.passed_components ?? "-"}</strong>
+          <small>Passed component tests</small>
         </div>
       </section>
 

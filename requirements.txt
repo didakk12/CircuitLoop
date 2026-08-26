@@ -1,11 +1,14 @@
-fastapi
+fastapi>=0.141.1
 faiss-cpu
 numpy
 pdfplumber
 sentence-transformers
-uvicorn
+uvicorn>=0.52.3
 ultralytics
 pytesseract
 Pillow
 opencv-python
 PyMuPDF
+httpx2>=0.1.0
+pytest>=8.0.0
+sqlalchemy>=2.0.52

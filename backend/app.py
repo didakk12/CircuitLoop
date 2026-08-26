@@ -82,18 +82,18 @@ SEARCH_PAGE = """<!doctype html>
 def home():
         return SEARCH_PAGE
 
-PROJECT_ROOT = Path(__file__).resolve().parent
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
 model = SentenceTransformer(
     "sentence-transformers/all-MiniLM-L6-v2"
 )
 
 index = faiss.read_index(
-    str(PROJECT_ROOT / "vector_db" / "circuitloop.index")
+    str(PROJECT_ROOT / "rag" / "vector_db" / "circuitloop.index")
 )
 
 with open(
-    PROJECT_ROOT / "data" / "metadata.json",
+    PROJECT_ROOT / "rag" / "data" / "metadata.json",
     "r",
     encoding="utf-8"
 ) as f:
