@@ -1,0 +1,722 @@
+[
+  {
+    "class_id": 4,
+    "class_name": "ic",
+    "confidence": 0.8813787698745728,
+    "box": [
+      175,
+      168,
+      271,
+      300
+    ],
+    "text": "HUNTUHUTIALUNIT\nmare ' Mena\nwITnnihih"
+  },
+  {
+    "class_id": 2,
+    "class_name": "capacitor",
+    "confidence": 0.8518255949020386,
+    "box": [
+      4,
+      301,
+      45,
+      337
+    ],
+    "text": ""
+  },
+  {
+    "class_id": 2,
+    "class_name": "capacitor",
+    "confidence": 0.8449530601501465,
+    "box": [
+      3,
+      204,
+      41,
+      239
+    ],
+    "text": ""
+  },
+  {
+    "class_id": 2,
+    "class_name": "capacitor",
+    "confidence": 0.8392097353935242,
+    "box": [
+      3,
+      349,
+      43,
+      385
+    ],
+    "text": "CO :"
+  },
+  {
+    "class_id": 2,
+    "class_name": "capacitor",
+    "confidence": 0.7899598479270935,
+    "box": [
+      94,
+      93,
+      126,
+      129
+    ],
+    "text": "fl"
+  },
+  {
+    "class_id": 2,
+    "class_name": "capacitor",
+    "confidence": 0.7670714855194092,
+    "box": [
+      323,
+      81,
+      356,
+      115
+    ],
+    "text": "‘oe"
+  },
+  {
+    "class_id": 2,
+    "class_name": "capacitor",
+    "confidence": 0.7587156891822815,
+    "box": [
+      3,
+      254,
+      47,
+      289
+    ],
+    "text": "Se:"
+  },
+  {
+    "class_id": 1,
+    "class_name": "buzzer",
+    "confidence": 0.7581713795661926,
+    "box": [
+      97,
+      45,
+      136,
+      86
+    ],
+    "text": ""
+  },
+  {
+    "class_id": 6,
+    "class_name": "resistor",
+    "confidence": 0.7178736329078674,
+    "box": [
+      138,
+      209,
+      145,
+      222
+    ],
+    "text": "le"
+  },
+  {
+    "class_id": 6,
+    "class_name": "resistor",
+    "confidence": 0.7113408446311951,
+    "box": [
+      212,
+      324,
+      226,
+      336
+    ],
+    "text": "ion\nrat"
+  },
+  {
+    "class_id": 6,
+    "class_name": "resistor",
+    "confidence": 0.6662612557411194,
+    "box": [
+      215,
+      131,
+      225,
+      146
+    ],
+    "text": "P'"
+  },
+  {
+    "class_id": 6,
+    "class_name": "resistor",
+    "confidence": 0.6658375263214111,
+    "box": [
+      95,
+      298,
+      112,
+      308
+    ],
+    "text": ">"
+  },
+  {
+    "class_id": 2,
+    "class_name": "capacitor",
+    "confidence": 0.6608832478523254,
+    "box": [
+      302,
+      208,
+      310,
+      222
+    ],
+    "text": "(J"
+  },
+  {
+    "class_id": 2,
+    "class_name": "capacitor",
+    "confidence": 0.6544064283370972,
+    "box": [
+      284,
+      295,
+      300,
+      303
+    ],
+    "text": "te,"
+  },
+  {
+    "class_id": 6,
+    "class_name": "resistor",
+    "confidence": 0.6464093327522278,
+    "box": [
+      89,
+      227,
+      106,
+      237
+    ],
+    "text": "ih"
+  },
+  {
+    "class_id": 2,
+    "class_name": "capacitor",
+    "confidence": 0.6386189460754395,
+    "box": [
+      230,
+      331,
+      245,
+      343
+    ],
+    "text": "_"
+  },
+  {
+    "class_id": 6,
+    "class_name": "resistor",
+    "confidence": 0.6365761160850525,
+    "box": [
+      123,
+      294,
+      132,
+      306
+    ],
+    "text": "a"
+  },
+  {
+    "class_id": 6,
+    "class_name": "resistor",
+    "confidence": 0.6330984830856323,
+    "box": [
+      305,
+      266,
+      312,
+      281
+    ],
+    "text": "J"
+  },
+  {
+    "class_id": 2,
+    "class_name": "capacitor",
+    "confidence": 0.6119343638420105,
+    "box": [
+      121,
+      347,
+      137,
+      358
+    ],
+    "text": "i"
+  },
+  {
+    "class_id": 6,
+    "class_name": "resistor",
+    "confidence": 0.6005058288574219,
+    "box": [
+      433,
+      365,
+      446,
+      376
+    ],
+    "text": ""
+  },
+  {
+    "class_id": 6,
+    "class_name": "resistor",
+    "confidence": 0.5912283658981323,
+    "box": [
+      232,
+      318,
+      244,
+      326
+    ],
+    "text": "re |"
+  },
+  {
+    "class_id": 6,
+    "class_name": "resistor",
+    "confidence": 0.5808293223381042,
+    "box": [
+      142,
+      432,
+      157,
+      442
+    ],
+    "text": "vv?"
+  },
+  {
+    "class_id": 2,
+    "class_name": "capacitor",
+    "confidence": 0.5715464353561401,
+    "box": [
+      221,
+      379,
+      236,
+      388
+    ],
+    "text": "="
+  },
+  {
+    "class_id": 6,
+    "class_name": "resistor",
+    "confidence": 0.5627334713935852,
+    "box": [
+      308,
+      354,
+      318,
+      365
+    ],
+    "text": "rs"
+  },
+  {
+    "class_id": 2,
+    "class_name": "capacitor",
+    "confidence": 0.5554007291793823,
+    "box": [
+      244,
+      131,
+      259,
+      144
+    ],
+    "text": ""
+  },
+  {
+    "class_id": 6,
+    "class_name": "resistor",
+    "confidence": 0.5459803938865662,
+    "box": [
+      120,
+      28,
+      130,
+      38
+    ],
+    "text": "x]"
+  },
+  {
+    "class_id": 6,
+    "class_name": "resistor",
+    "confidence": 0.5391505360603333,
+    "box": [
+      146,
+      323,
+      153,
+      336
+    ],
+    "text": "5"
+  },
+  {
+    "class_id": 6,
+    "class_name": "resistor",
+    "confidence": 0.5247422456741333,
+    "box": [
+      197,
+      349,
+      219,
+      363
+    ],
+    "text": "rece"
+  },
+  {
+    "class_id": 6,
+    "class_name": "resistor",
+    "confidence": 0.5246094465255737,
+    "box": [
+      277,
+      342,
+      294,
+      352
+    ],
+    "text": "Bee"
+  },
+  {
+    "class_id": 2,
+    "class_name": "capacitor",
+    "confidence": 0.5214424729347229,
+    "box": [
+      230,
+      150,
+      240,
+      161
+    ],
+    "text": ""
+  },
+  {
+    "class_id": 2,
+    "class_name": "capacitor",
+    "confidence": 0.5187389850616455,
+    "box": [
+      283,
+      356,
+      295,
+      365
+    ],
+    "text": "‘rq"
+  },
+  {
+    "class_id": 2,
+    "class_name": "capacitor",
+    "confidence": 0.5151688456535339,
+    "box": [
+      150,
+      154,
+      162,
+      163
+    ],
+    "text": ". a"
+  },
+  {
+    "class_id": 6,
+    "class_name": "resistor",
+    "confidence": 0.5049648880958557,
+    "box": [
+      268,
+      325,
+      276,
+      338
+    ],
+    "text": "ri"
+  },
+  {
+    "class_id": 6,
+    "class_name": "resistor",
+    "confidence": 0.5043926239013672,
+    "box": [
+      205,
+      409,
+      214,
+      424
+    ],
+    "text": "a"
+  },
+  {
+    "class_id": 6,
+    "class_name": "resistor",
+    "confidence": 0.4961358308792114,
+    "box": [
+      200,
+      371,
+      214,
+      382
+    ],
+    "text": "bead"
+  },
+  {
+    "class_id": 3,
+    "class_name": "display",
+    "confidence": 0.4953060448169708,
+    "box": [
+      330,
+      174,
+      408,
+      294
+    ],
+    "text": ""
+  },
+  {
+    "class_id": 6,
+    "class_name": "resistor",
+    "confidence": 0.4858076572418213,
+    "box": [
+      99,
+      207,
+      124,
+      220
+    ],
+    "text": "bid,"
+  },
+  {
+    "class_id": 2,
+    "class_name": "capacitor",
+    "confidence": 0.48535656929016113,
+    "box": [
+      381,
+      148,
+      396,
+      159
+    ],
+    "text": "z"
+  },
+  {
+    "class_id": 2,
+    "class_name": "capacitor",
+    "confidence": 0.48260992765426636,
+    "box": [
+      248,
+      157,
+      261,
+      163
+    ],
+    "text": "_-"
+  },
+  {
+    "class_id": 6,
+    "class_name": "resistor",
+    "confidence": 0.47782206535339355,
+    "box": [
+      102,
+      29,
+      113,
+      38
+    ],
+    "text": "i)"
+  },
+  {
+    "class_id": 2,
+    "class_name": "capacitor",
+    "confidence": 0.4562770128250122,
+    "box": [
+      322,
+      434,
+      339,
+      447
+    ],
+    "text": "Lal"
+  },
+  {
+    "class_id": 4,
+    "class_name": "ic",
+    "confidence": 0.4426288306713104,
+    "box": [
+      94,
+      140,
+      119,
+      160
+    ],
+    "text": ""
+  },
+  {
+    "class_id": 6,
+    "class_name": "resistor",
+    "confidence": 0.4313199520111084,
+    "box": [
+      344,
+      150,
+      353,
+      164
+    ],
+    "text": "5"
+  },
+  {
+    "class_id": 6,
+    "class_name": "resistor",
+    "confidence": 0.4270504415035248,
+    "box": [
+      64,
+      189,
+      72,
+      203
+    ],
+    "text": "a\n."
+  },
+  {
+    "class_id": 6,
+    "class_name": "resistor",
+    "confidence": 0.4045647084712982,
+    "box": [
+      353,
+      405,
+      361,
+      414
+    ],
+    "text": ""
+  },
+  {
+    "class_id": 2,
+    "class_name": "capacitor",
+    "confidence": 0.3947925567626953,
+    "box": [
+      174,
+      65,
+      206,
+      98
+    ],
+    "text": ")"
+  },
+  {
+    "class_id": 2,
+    "class_name": "capacitor",
+    "confidence": 0.38702094554901123,
+    "box": [
+      251,
+      319,
+      255,
+      332
+    ],
+    "text": "’"
+  },
+  {
+    "class_id": 2,
+    "class_name": "capacitor",
+    "confidence": 0.3730148673057556,
+    "box": [
+      203,
+      157,
+      215,
+      163
+    ],
+    "text": "Fi"
+  },
+  {
+    "class_id": 6,
+    "class_name": "resistor",
+    "confidence": 0.3494306206703186,
+    "box": [
+      145,
+      165,
+      157,
+      177
+    ],
+    "text": ".7"
+  },
+  {
+    "class_id": 2,
+    "class_name": "capacitor",
+    "confidence": 0.34846216440200806,
+    "box": [
+      152,
+      408,
+      165,
+      420
+    ],
+    "text": "om"
+  },
+  {
+    "class_id": 6,
+    "class_name": "resistor",
+    "confidence": 0.338297963142395,
+    "box": [
+      154,
+      277,
+      165,
+      283
+    ],
+    "text": ""
+  },
+  {
+    "class_id": 6,
+    "class_name": "resistor",
+    "confidence": 0.3378109037876129,
+    "box": [
+      324,
+      417,
+      335,
+      427
+    ],
+    "text": "ry"
+  },
+  {
+    "class_id": 2,
+    "class_name": "capacitor",
+    "confidence": 0.29793092608451843,
+    "box": [
+      398,
+      318,
+      406,
+      330
+    ],
+    "text": "2"
+  },
+  {
+    "class_id": 6,
+    "class_name": "resistor",
+    "confidence": 0.296817421913147,
+    "box": [
+      283,
+      357,
+      296,
+      365
+    ],
+    "text": "ah."
+  },
+  {
+    "class_id": 2,
+    "class_name": "capacitor",
+    "confidence": 0.2911226153373718,
+    "box": [
+      330,
+      151,
+      340,
+      163
+    ],
+    "text": ""
+  },
+  {
+    "class_id": 6,
+    "class_name": "resistor",
+    "confidence": 0.28673607110977173,
+    "box": [
+      301,
+      385,
+      312,
+      398
+    ],
+    "text": "nd"
+  },
+  {
+    "class_id": 2,
+    "class_name": "capacitor",
+    "confidence": 0.27402594685554504,
+    "box": [
+      233,
+      124,
+      243,
+      131
+    ],
+    "text": ""
+  },
+  {
+    "class_id": 6,
+    "class_name": "resistor",
+    "confidence": 0.27159544825553894,
+    "box": [
+      155,
+      332,
+      171,
+      342
+    ],
+    "text": "we."
+  },
+  {
+    "class_id": 2,
+    "class_name": "capacitor",
+    "confidence": 0.27026236057281494,
+    "box": [
+      300,
+      384,
+      312,
+      398
+    ],
+    "text": ""
+  },
+  {
+    "class_id": 6,
+    "class_name": "resistor",
+    "confidence": 0.2541986107826233,
+    "box": [
+      250,
+      320,
+      255,
+      332
+    ],
+    "text": ""
+  }
+]
