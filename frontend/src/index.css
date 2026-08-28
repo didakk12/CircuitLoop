@@ -933,7 +933,31 @@ button {
   letter-spacing: normal;
   border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: 8px;
-  background: rgba(255, 255, 255, 0.025);
+  /* Opaque surface (was translucent white) so the native option list renders
+     on the dark theme instead of falling back to a white popup. */
+  background: #121b18;
+  color-scheme: dark;
+}
+
+.assistant-component-select select:hover {
+  border-color: rgba(255, 255, 255, 0.16);
+}
+
+.assistant-component-select select:focus-visible {
+  outline: none;
+  border-color: #8df2a8;
+  box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.15);
+}
+
+.assistant-component-select option {
+  color: #e5eee8;
+  background: #101815;
+}
+
+.assistant-component-select option:checked,
+.assistant-component-select option:hover {
+  color: #eafff1;
+  background: rgba(34, 197, 94, 0.16);
 }
 
 .assistant-icon {
