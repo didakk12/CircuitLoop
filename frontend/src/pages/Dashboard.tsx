@@ -3,10 +3,24 @@ import {
   ScanLine,
   Upload,
 } from "lucide-react";
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
+
+import { ApiError, getDashboardStats } from "../api";
+import type { ApiDashboardStats } from "../api";
 
 function Dashboard() {
   const navigate = useNavigate();
+  const [stats, setStats] = useState<ApiDashboardStats | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    getDashboardStats()
+      .then(setStats)
+      .catch((err: unknown) => {
+        setError(err instanceof ApiError ? err.message : "Could not load dashboard statistics.");
+      });
+  }, []);
 
   return (
     <main className="page-content">
@@ -49,29 +63,39 @@ function Dashboard() {
         </div>
       </section>
 
+      {error && (
+        <section className="info-panel info-panel-error">
+          <Activity size={20} />
+          <div>
+            <strong>Could not load statistics</strong>
+            <p>{error}</p>
+          </div>
+        </section>
+      )}
+
       <section className="stats-grid">
         <div className="stat-card">
           <span>PCBs scanned</span>
-          <strong>0</strong>
+          <strong>{stats ? stats.total_scans : "–"}</strong>
           <small>Start your first scan</small>
         </div>
 
         <div className="stat-card">
           <span>Components identified</span>
-          <strong>0</strong>
+          <strong>{stats ? stats.total_components : "–"}</strong>
           <small>AI detection results</small>
         </div>
 
         <div className="stat-card">
           <span>Components tested</span>
-          <strong>0</strong>
+          <strong>{stats ? stats.tested_components : "–"}</strong>
           <small>Hardware verification</small>
         </div>
 
         <div className="stat-card">
-          <span>Potentially salvageable</span>
-          <strong>0</strong>
-          <small>Based on current results</small>
+          <span>Passed tests</span>
+          <strong>{stats ? stats.passed_components : "–"}</strong>
+          <small>Confirmed working</small>
         </div>
       </section>
 

@@ -2,13 +2,16 @@ import { ImagePlus, Upload, X } from "lucide-react";
 import { useRef, useState } from "react";
 
 interface ImageUploaderProps {
-  onAnalyze: (imageUrl: string) => void;
+  /** `file` is the real upload sent to the backend; `imageUrl` is the local preview blob URL, kept for display. */
+  onAnalyze: (file: File, imageUrl: string) => void;
+  isAnalyzing?: boolean;
 }
 
-function ImageUploader({ onAnalyze }: ImageUploaderProps) {
+function ImageUploader({ onAnalyze, isAnalyzing = false }: ImageUploaderProps) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [imageUrl, setImageUrl] = useState<string | null>(null);
   const [fileName, setFileName] = useState("");
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
 
   const handleFileChange = (
     event: React.ChangeEvent<HTMLInputElement>,
@@ -28,6 +31,7 @@ function ImageUploader({ onAnalyze }: ImageUploaderProps) {
 
     setImageUrl(url);
     setFileName(file.name);
+    setSelectedFile(file);
   };
 
   const handleRemove = () => {
@@ -37,6 +41,7 @@ function ImageUploader({ onAnalyze }: ImageUploaderProps) {
 
     setImageUrl(null);
     setFileName("");
+    setSelectedFile(null);
 
     if (inputRef.current) {
       inputRef.current.value = "";
@@ -44,11 +49,11 @@ function ImageUploader({ onAnalyze }: ImageUploaderProps) {
   };
 
   const handleAnalyze = () => {
-    if (!imageUrl) {
+    if (!imageUrl || !selectedFile) {
       return;
     }
 
-    onAnalyze(imageUrl);
+    onAnalyze(selectedFile, imageUrl);
   };
 
   return (
@@ -113,9 +118,10 @@ function ImageUploader({ onAnalyze }: ImageUploaderProps) {
           <button
             className="upload-button analyze-button"
             onClick={handleAnalyze}
+            disabled={isAnalyzing}
           >
             <ImagePlus size={18} />
-            Analyze PCB
+            {isAnalyzing ? "Analyzing..." : "Analyze PCB"}
           </button>
         </div>
       )}

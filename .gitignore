@@ -141,3 +141,10 @@ dist
 vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
 .vite/
+
+# Uploaded scan images — user data, not source
+backend/uploads/
+
+# Local database dumps taken before destructive operations — machine-local
+# diagnostic output, not project source
+backups/

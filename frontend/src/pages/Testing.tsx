@@ -1,12 +1,39 @@
-import { Activity, Zap } from "lucide-react";
-import { mockScan } from "../data/mockScan";
+import { Activity, AlertTriangle, TestTube, Zap } from "lucide-react";
+import { useEffect, useState } from "react";
+
+import { ApiError, getComponents, getLatestTestResult } from "../api";
+import type { ApiComponent, ApiTestResult } from "../api";
+
+interface TestedComponent {
+  component: ApiComponent;
+  result: ApiTestResult;
+}
 
 function Testing() {
-  const testedComponents = mockScan.components.filter(
-    (component) =>
-      component.test.status !== "NOT_TESTED" &&
-      component.test.status !== "NOT_SUPPORTED",
-  );
+  const [testedComponents, setTestedComponents] = useState<TestedComponent[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    getComponents()
+      .then(async (components) => {
+        // GET /api/components (list) doesn't include nested test_results
+        // (see backend/src/repositories/componentRepository.ts — list is a
+        // summary, get-by-id/test-result is where full detail lives), so
+        // the latest result is fetched per component using the existing
+        // GET /api/components/:id/test-result endpoint. No new backend
+        // endpoint was added for this — reusing exactly what already exists.
+        const results = await Promise.all(
+          components.map(async (component) => {
+            const result = await getLatestTestResult(component.id);
+            return result ? { component, result } : null;
+          }),
+        );
+        setTestedComponents(results.filter((entry): entry is TestedComponent => entry !== null));
+      })
+      .catch((err: unknown) => {
+        setError(err instanceof ApiError ? err.message : "Could not load test results.");
+      });
+  }, []);
 
   return (
     <main className="page-content">
@@ -25,8 +52,8 @@ function Testing() {
         </div>
 
         <div>
-          <strong>Testing station</strong>
-          <span>Waiting for hardware connection</span>
+          <strong>ESP32 testing station</strong>
+          <span>Not yet implemented — physical hardware testing is a planned future phase</span>
         </div>
 
         <span className="connection-badge">
@@ -34,13 +61,34 @@ function Testing() {
         </span>
       </div>
 
+      {error && (
+        <section className="info-panel info-panel-error">
+          <AlertTriangle size={20} />
+          <div>
+            <strong>Could not load test results</strong>
+            <p>{error}</p>
+          </div>
+        </section>
+      )}
+
+      {testedComponents && testedComponents.length === 0 && !error && (
+        <div className="empty-state">
+          <TestTube size={32} />
+          <h4>No test results yet</h4>
+          <p>
+            No component has a recorded test result. Physical testing
+            requires the ESP32 hardware workflow, which isn't built yet.
+          </p>
+        </div>
+      )}
+
       <div className="test-grid">
-        {testedComponents.map((component) => (
-          <div className="test-card" key={component.id}>
+        {testedComponents?.map(({ component, result }) => (
+          <div className="test-card" key={result.id}>
             <div className="test-card-heading">
               <div>
-                <span>{component.id}</span>
-                <h4>{component.value}</h4>
+                <span>{component.id.slice(0, 8)}</span>
+                <h4>{component.name || component.type}</h4>
               </div>
 
               <Activity size={20} />
@@ -49,21 +97,21 @@ function Testing() {
             <div className="measurement-row">
               <span>Expected</span>
               <strong>
-                {component.test.expected}{" "}
-                {component.test.unit}
+                {result.expected_value ?? "–"}{" "}
+                {result.unit}
               </strong>
             </div>
 
             <div className="measurement-row">
               <span>Measured</span>
               <strong>
-                {component.test.measured}{" "}
-                {component.test.unit}
+                {result.measured_value ?? "–"}{" "}
+                {result.unit}
               </strong>
             </div>
 
-            <div className="test-result pass">
-              ✓ {component.test.status}
+            <div className={`test-result ${result.status}`}>
+              {result.status === "pass" ? "✓" : result.status === "fail" ? "✗" : "–"} {result.status}
             </div>
           </div>
         ))}

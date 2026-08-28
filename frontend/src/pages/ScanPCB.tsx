@@ -1,15 +1,31 @@
-import { ArrowLeft, ScanLine } from "lucide-react";
+import { AlertTriangle, ArrowLeft, ScanLine } from "lucide-react";
+import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 
+import { ApiError, createScan, uploadAndDetect } from "../api";
 import ImageUploader from "../components/ImageUploader";
 
 function ScanPCB() {
   const navigate = useNavigate();
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  const handleAnalyze = (imageUrl: string) => {
-    sessionStorage.setItem("pcbImage", imageUrl);
+  const handleAnalyze = async (file: File, imageUrl: string) => {
+    setIsAnalyzing(true);
+    setError(null);
 
-    navigate("/analysis");
+    try {
+      const scan = await createScan();
+      await uploadAndDetect(scan.id, file);
+
+      sessionStorage.setItem("pcbImage", imageUrl);
+      sessionStorage.setItem("pcbScanId", scan.id);
+
+      navigate("/analysis");
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Something went wrong while analyzing the image.");
+      setIsAnalyzing(false);
+    }
   };
 
   return (
@@ -33,7 +49,18 @@ function ScanPCB() {
         </p>
       </div>
 
-      <ImageUploader onAnalyze={handleAnalyze} />
+      <ImageUploader onAnalyze={handleAnalyze} isAnalyzing={isAnalyzing} />
+
+      {error && (
+        <section className="info-panel info-panel-error">
+          <AlertTriangle size={20} />
+
+          <div>
+            <strong>Analysis failed</strong>
+            <p>{error}</p>
+          </div>
+        </section>
+      )}
 
       <section className="info-panel">
         <ScanLine size={20} />

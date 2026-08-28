@@ -1,0 +1,25 @@
+# CircuitLoop ML service — scoped to what YOLO detection / OCR / FAISS
+# retrieval genuinely need. Deliberately excludes sqlalchemy and anything
+# CRUD-related — that responsibility is fully owned by the TypeScript
+# backend now (see ML_SERVICE_INTEGRATION_PLAN.md §1's dependency-evidence
+# finding: the old Python branches had one undifferentiated dependency list
+# for both CRUD and ML; this file is the first time those are separated).
+
+fastapi>=0.115
+uvicorn[standard]>=0.34
+python-multipart>=0.0.20    # required by FastAPI for multipart/form-data (image upload) parsing
+
+ultralytics>=8.3             # YOLO detection
+opencv-python>=4.10          # image decoding/cropping for detection + OCR preprocessing
+pytesseract>=0.3.13          # OCR wrapper — requires the Tesseract OCR binary installed separately (not a pip package)
+Pillow>=11.0
+
+sentence-transformers>=5.0   # RAG query embeddings
+faiss-cpu>=1.9                # RAG vector search
+numpy>=2.0
+
+pydantic>=2.9
+
+# --- Testing (Phase 7) -----------------------------------------------------
+pytest>=8.0
+httpx>=0.27                  # required by FastAPI's TestClient

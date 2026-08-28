@@ -2,13 +2,16 @@ import {
   Bot,
   CircuitBoard,
   FileText,
+  History as HistoryIcon,
   LayoutDashboard,
+  LogOut,
   ScanLine,
   Settings,
   TestTube,
 } from "lucide-react";
 
 import {
+  Navigate,
   NavLink,
   Route,
   Routes,
@@ -22,9 +25,37 @@ import Components from "./pages/Components";
 import Testing from "./pages/Testing";
 import Reports from "./pages/Reports";
 import Assistant from "./pages/Assistant";
+import History from "./pages/History";
+import SignIn from "./pages/SignIn";
+import { useAuth } from "./auth/AuthContext";
 
 function App() {
   const location = useLocation();
+  const { user, loading, signOut } = useAuth();
+
+  // Wait for the initial session check before deciding. Rendering the sign-in
+  // page during the check would flash it at users who are already signed in.
+  if (loading) {
+    return (
+      <div className="app-loading">
+        <CircuitBoard size={28} />
+        <p>Loading…</p>
+      </div>
+    );
+  }
+
+  if (user === null) {
+    // Remember where they were headed so signing in resumes it.
+    return (
+      <Routes>
+        <Route path="/signin" element={<SignIn />} />
+        <Route
+          path="*"
+          element={<Navigate to="/signin" replace state={{ from: location.pathname }} />}
+        />
+      </Routes>
+    );
+  }
 
   const getPageName = () => {
     switch (location.pathname) {
@@ -36,6 +67,8 @@ function App() {
         return "PCB Analysis";
       case "/components":
         return "Components";
+      case "/history":
+        return "Scan History";
       case "/testing":
         return "Testing";
       case "/reports":
@@ -91,6 +124,16 @@ function App() {
           >
             <CircuitBoard size={19} />
             Analysis
+          </NavLink>
+
+          <NavLink
+            to="/history"
+            className={({ isActive }) =>
+              `nav-item ${isActive ? "active" : ""}`
+            }
+          >
+            <HistoryIcon size={19} />
+            History
           </NavLink>
 
           <NavLink
@@ -154,20 +197,34 @@ function App() {
             <h2>{getPageName()}</h2>
           </div>
 
-          <NavLink to="/scan" className="scan-button">
-            <ScanLine size={18} />
-            New Scan
-          </NavLink>
+          <div className="topbar-actions">
+            <span className="topbar-user" title={user.email}>
+              {user.email}
+            </span>
+
+            <button type="button" className="signout-button" onClick={() => void signOut()}>
+              <LogOut size={16} />
+              Sign out
+            </button>
+
+            <NavLink to="/scan" className="scan-button">
+              <ScanLine size={18} />
+              New Scan
+            </NavLink>
+          </div>
         </header>
 
         <Routes>
           <Route path="/" element={<Dashboard />} />
           <Route path="/scan" element={<ScanPCB />} />
           <Route path="/analysis" element={<Analysis />} />
+          <Route path="/history" element={<History />} />
           <Route path="/components" element={<Components />} />
           <Route path="/testing" element={<Testing />} />
           <Route path="/reports" element={<Reports />} />
           <Route path="/assistant" element={<Assistant />} />
+          {/* Already signed in — nothing to do on the sign-in route. */}
+          <Route path="/signin" element={<Navigate to="/" replace />} />
         </Routes>
       </main>
     </div>
