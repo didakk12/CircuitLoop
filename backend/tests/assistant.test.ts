@@ -134,12 +134,45 @@ describe.skipIf(!reachable)("POST /api/assistant (integration, ml-service + llmP
 
     // Confirms RAG + component + test-result context actually reached the generation layer, not just the question.
     const userPromptSent = mockGenerateAnswer.mock.calls[0]?.[1] ?? "";
+    expect(userPromptSent).toMatch(/Known component information:/);
     expect(userPromptSent).toMatch(/Component: ic \(U1\)/);
+    expect(userPromptSent).toMatch(/Testing \/ verification:/);
     expect(userPromptSent).toMatch(/Latest test result: pass/);
     expect(userPromptSent).toMatch(/measured 4.9V/);
     expect(userPromptSent).toMatch(/LM7805/);
     expect(userPromptSent).toMatch(/Output voltage 5V/);
     expect(userPromptSent).toMatch(/What does this component do\?/);
+  });
+
+  it("answers about an untested component: prompt marks it untested, still sends component info, invents no test data", async () => {
+    const componentId = await createComponent(); // created without any test result
+
+    mockSearch.mockResolvedValueOnce({ results: [] });
+    mockIsConfigured.mockReturnValue(true);
+    mockGenerateAnswer.mockResolvedValueOnce(
+      "An IC (integrated circuit). It has not been tested yet, so whether this unit works is unknown.",
+    );
+
+    const response = await api
+      .post("/api/assistant")
+      .send({ component_id: componentId, question: "What is this component and what is it used for?" });
+
+    expect(response.status).toBe(200);
+    expect(response.body.configured).toBe(true);
+
+    // Generation still runs — a missing test result must not block the assistant.
+    expect(mockGenerateAnswer).toHaveBeenCalledTimes(1);
+    const userPrompt = mockGenerateAnswer.mock.calls[0]?.[1] ?? "";
+
+    // Known component metadata is present...
+    expect(userPrompt).toMatch(/Known component information:/);
+    expect(userPrompt).toMatch(/Component: ic \(U1\)/);
+    // ...clearly separated from testing/verification, which says "not tested yet"...
+    expect(userPrompt).toMatch(/Testing \/ verification:/);
+    expect(userPrompt).toMatch(/has not been tested yet/i);
+    // ...and no fabricated measurement / pass-fail line is in the prompt.
+    expect(userPrompt).not.toMatch(/Latest test result:/);
+    expect(userPrompt).not.toMatch(/measured \d/);
   });
 
   it("passes an off-topic refusal from the provider straight through (configured stays true)", async () => {

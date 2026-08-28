@@ -41,17 +41,25 @@ interface AssistantContext {
   chunks: MlSearchResult[];
 }
 
+/**
+ * Only the automatically-detected/stored metadata — never a test result.
+ * `condition` and `confidence` are guesses the detector made from the scan
+ * image, labelled as such so the model does not present them as verified.
+ */
 function summarizeComponent(component: ComponentDetail): string {
   const label = component.name ? `${component.type} (${component.name})` : component.type;
+  const salvage = component.salvagePriority ? ` Salvage priority: ${component.salvagePriority}.` : "";
   return (
-    `Component: ${label}. Condition: ${component.condition}. Status: ${component.status}. ` +
-    `Detection confidence: ${Math.round(component.confidence * 100)}%.`
+    `Component: ${label}. ` +
+    `Automatic condition guess (from the scan image, not a measurement): ${component.condition}. ` +
+    `Detection confidence: ${Math.round(component.confidence * 100)}%.` +
+    salvage
   );
 }
 
 function summarizeTestResult(testResult: TestResult | null): string {
   if (!testResult) {
-    return "No test result has been recorded for this component yet.";
+    return "This component has not been tested yet — no measurements or pass/fail result exist for it.";
   }
   const unit = testResult.unit ?? "";
   const measured = testResult.measuredValue !== null ? `measured ${testResult.measuredValue}${unit}` : "no measurement recorded";
@@ -68,7 +76,8 @@ function formatChunks(chunks: MlSearchResult[]): string {
 
 function buildPrompt(question: string, context: AssistantContext): string {
   return (
-    `${context.componentSummary}\n${context.testSummary}\n\n` +
+    `Known component information:\n${context.componentSummary}\n\n` +
+    `Testing / verification:\n${context.testSummary}\n\n` +
     `Relevant datasheet excerpts:\n${formatChunks(context.chunks)}\n\n` +
     `Question: ${question}`
   );
