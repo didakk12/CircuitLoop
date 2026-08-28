@@ -8,5 +8,6 @@ import { askAssistantBodySchema } from "../validation/assistantSchemas.js";
 const router = Router();
 
 router.post("/", validateBody(askAssistantBodySchema), asyncHandler(assistantController.askAssistant));
+router.post("/stream", validateBody(askAssistantBodySchema), asyncHandler(assistantController.askAssistantStream));
 
 export default router;

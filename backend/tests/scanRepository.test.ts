@@ -68,10 +68,12 @@ describe.skipIf(!reachable)("scanRepository (integration)", () => {
     expect(scan).toBeNull();
   });
 
-  it("reports false from scanExists for a missing scan and true for a real one", async () => {
+  it("reports false from scanExists for a missing scan and true for one the user owns", async () => {
     const scan = await scanRepository.createScan({ imagePath: null, ownerId }, tx);
-    await expect(scanRepository.scanExists(scan.id, tx)).resolves.toBe(true);
-    await expect(scanRepository.scanExists("does-not-exist", tx)).resolves.toBe(false);
+    const otherUser = await createTestUser(tx);
+    await expect(scanRepository.scanExists(scan.id, ownerId, tx)).resolves.toBe(true);
+    await expect(scanRepository.scanExists(scan.id, otherUser, tx)).resolves.toBe(false);
+    await expect(scanRepository.scanExists("does-not-exist", ownerId, tx)).resolves.toBe(false);
   });
 
   it("retrieves a scan with its DETECTED components and their test results nested", async () => {
@@ -89,6 +91,7 @@ describe.skipIf(!reachable)("scanRepository (integration)", () => {
         x2: 3,
         y2: 4,
       },
+      ownerId,
       tx,
     );
 
@@ -119,6 +122,7 @@ describe.skipIf(!reachable)("scanRepository (integration)", () => {
         x2: null,
         y2: null,
       },
+      ownerId,
       tx,
     );
 

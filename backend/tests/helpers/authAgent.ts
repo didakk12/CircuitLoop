@@ -68,8 +68,34 @@ export async function deleteTestUsers(userIds: string[]): Promise<void> {
     await session.run(
       `MATCH (u:User) WHERE u.id IN $ids
        OPTIONAL MATCH (u)-[:OWNS]->(s:Scan)
-       DETACH DELETE u, s`,
+       OPTIONAL MATCH (u)-[:OWNS]->(c:Component)
+       OPTIONAL MATCH (c)-[:HAS_TEST_RESULT]->(t:TestResult)
+       OPTIONAL MATCH (c)-[:HAS_COMMAND]->(cmd:Command)
+       DETACH DELETE u, s, c, t, cmd`,
       { ids: userIds },
+    );
+  } finally {
+    await session.close();
+  }
+}
+
+/**
+ * Hard-deletes components (and their test results) by id for test teardown —
+ * bypasses the ownership-scoped `componentRepository.deleteComponent`, which
+ * now needs an owner id the cleanup code doesn't track.
+ */
+export async function deleteComponentsById(componentIds: string[]): Promise<void> {
+  if (componentIds.length === 0) {
+    return;
+  }
+  const session = getDriver().session({ database: settings.neo4j.database });
+  try {
+    await session.run(
+      `MATCH (c:Component) WHERE c.id IN $ids
+       OPTIONAL MATCH (c)-[:HAS_TEST_RESULT]->(t:TestResult)
+       OPTIONAL MATCH (c)-[:HAS_COMMAND]->(cmd:Command)
+       DETACH DELETE c, t, cmd`,
+      { ids: componentIds },
     );
   } finally {
     await session.close();

@@ -173,25 +173,20 @@ Only add these to `backend/.env` if you need them.
 
 ## 5. Install dependencies
 
-Run these from the project root folder.
+Run these from the project **root** folder (the one containing `frontend`,
+`backend`, and `ml-service`).
 
-**Step 5.1 — Backend.**
-
-```powershell
-cd backend
-npm install
-cd ..
-```
-
-**Step 5.2 — Frontend.**
+**Step 5.1 — Node dependencies (root, backend, frontend).**
 
 ```powershell
-cd frontend
-npm install
-cd ..
+npm run install:all
 ```
 
-**Step 5.3 — ML service.**
+This installs the small root helper that runs everything together (step 6),
+then the backend and frontend packages. (If you prefer, you can still run
+`npm install` in each of `.`, `backend`, and `frontend` by hand.)
+
+**Step 5.2 — ML service (Python).**
 
 This one is large (about 1–2 GB) and takes several minutes.
 
@@ -210,39 +205,58 @@ is nothing extra to download or train.
 
 ## 6. Run the project
 
-You need **three terminal windows**, started in this order.
-
-**Terminal 1 — ML service**
+Make sure **Neo4j is running first** (step 3). Then, from the project **root**:
 
 ```powershell
-cd C:\path\to\CircuitLoop\ml-service
-.venv\Scripts\python.exe app.py
-```
-
-Wait for: `Search service ready.`
-(The first start is slow — it loads the AI model.)
-
-**Terminal 2 — Backend**
-
-```powershell
-cd C:\path\to\CircuitLoop\backend
 npm run dev
 ```
 
-Wait for: `CircuitLoop backend listening on port 8000`
+This starts all three services in one terminal, with labelled output:
 
-**Terminal 3 — Frontend**
+| Label | Service | Address |
+|---|---|---|
+| `[ml]` | ML service (Python) | `127.0.0.1:8001` |
+| `[backend]` | Backend (Node.js) | `127.0.0.1:8000` |
+| `[frontend]` | Frontend (Vite) | `localhost:5173` |
 
-```powershell
-cd C:\path\to\CircuitLoop\frontend
-npm run dev
+The ML service takes ~15–25 s to load its models. **The frontend deliberately
+waits for it** — so the moment Vite prints its address, the whole stack can
+actually serve a scan. Watch for:
+
 ```
-
-Wait for Vite to print a local address.
+[ml]       ... Search service ready.
+[ml]       ✅ ML SERVICE READY — models loaded, scanning available (20s)
+[frontend] ✅ ML service ready — models + index loaded
+[frontend]   ➜  Local:   http://localhost:5173/
+```
 
 **Then open <http://localhost:5173> in your browser.**
 
-To stop everything, press `Ctrl+C` in each terminal.
+Press `Ctrl+C` once to stop all three. (If a previous run left processes behind,
+`npm run dev` will fail on a port already in use — close the old terminals or
+kill whatever is on 8000 / 8001 / 5173 first; see
+[Port already in use](#port-already-in-use).)
+
+> If `npm run dev` reports **"ML service virtualenv not found"**, you skipped
+> [step 5.2](#5-install-dependencies) — create the venv, then re-run.
+
+### Alternative: separate terminals
+
+If you'd rather see each service in its own window (started in this order):
+
+```powershell
+# Terminal 1 — ML service
+cd C:\path\to\CircuitLoop\ml-service
+.venv\Scripts\python.exe app.py
+
+# Terminal 2 — Backend
+cd C:\path\to\CircuitLoop\backend
+npm run dev
+
+# Terminal 3 — Frontend
+cd C:\path\to\CircuitLoop\frontend
+npm run dev
+```
 
 ---
 
@@ -292,18 +306,18 @@ Go through this list in order.
 ### Start services
 
 ```powershell
-# ML service
-cd ml-service
-.venv\Scripts\python.exe app.py
-
-# Backend
-cd backend
+# All three at once, from the project root (Neo4j must already be running)
 npm run dev
 
-# Frontend
-cd frontend
-npm run dev
+# …or one at a time
+npm run dev:ml         # ML service   (wraps ml-service/.venv + app.py)
+npm run dev:backend    # backend
+npm run dev:frontend   # frontend
 ```
+
+The `npm run dev:*` scripts just call into each sub-project — the individual
+commands from [the alternative in step 6](#alternative-separate-terminals)
+still work if you prefer.
 
 ### Build for production
 
@@ -320,8 +334,7 @@ npm run preview    # preview the built site
 ### Run tests
 
 ```powershell
-cd backend
-npm test           # database tests are skipped if Neo4j is not running
+npm test           # backend tests (from the root); DB tests skip if Neo4j is off
 
 cd ml-service
 .venv\Scripts\python.exe -m pytest
@@ -363,13 +376,28 @@ first.
 Neo4j is not running, or the address is wrong. Start Neo4j and confirm
 <http://localhost:7474> loads.
 
-### Uploading an image fails with "ML service unreachable" (error 503)
+### Uploading an image fails with "Analysis failed" / "ML service unreachable"
 
-The ML service is not running or is still loading. Check terminal 1 for
-`Search service ready.`, then test it:
+The ML service (`127.0.0.1:8001`) is not running or has not finished loading —
+it is a separate process that `npm run dev` starts as `[ml]`, and it needs
+~15–25 s to load its models. Most common causes:
+
+1. **You scanned before it was ready.** With `npm run dev` the frontend waits
+   for the ML service, so if you opened <http://localhost:5173> the moment Vite
+   printed it, you are fine — otherwise wait for
+   `[ml] ✅ ML SERVICE READY` and retry the scan.
+2. **Stale processes from an earlier run.** If you started `npm run dev` while an
+   old backend/frontend was still running, the old one (with no ML service)
+   keeps serving your browser. Close every old dev terminal, kill anything left
+   on 8000 / 8001 / 5173 (see [Port already in use](#port-already-in-use)), then
+   run `npm run dev` once from the repo root.
+3. **The venv is missing** — `npm run dev` prints "ML service virtualenv not
+   found"; do [step 5.2](#5-install-dependencies).
+
+Check the service directly:
 
 ```powershell
-Invoke-RestMethod http://127.0.0.1:8001/health
+Invoke-RestMethod http://127.0.0.1:8001/health   # status=ok, model_loaded=True, index_loaded=True
 ```
 
 ### The website says "Could not reach the server"
@@ -404,9 +432,14 @@ Restart the service. `.env` files are only read at startup:
 
 ### Port already in use
 
+Usually a dev process from an earlier run that was never stopped. Find and kill
+whatever holds each port, then start `npm run dev` once:
+
 ```powershell
-netstat -ano | findstr ":8000"
-Stop-Process -Id <PID>
+foreach ($p in 8000,8001,5173) {
+  Get-NetTCPConnection -State Listen -LocalPort $p -ErrorAction SilentlyContinue |
+    ForEach-Object { Stop-Process -Id $_.OwningProcess -Force }
+}
 ```
 
 Or change the port: `PORT` for the backend, `ML_SERVICE_PORT` for the ML

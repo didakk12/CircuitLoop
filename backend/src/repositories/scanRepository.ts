@@ -35,10 +35,17 @@ export async function createScan(input: CreateScanInput, runner?: QueryRunner): 
   });
 }
 
-/** Cheap existence check — used by componentService to validate a `scan_id` reference before create/update. */
-export async function scanExists(id: string, runner?: QueryRunner): Promise<boolean> {
+/**
+ * Cheap ownership + existence check — used by componentService/detectionService
+ * to validate a `scan_id` reference before create/update. Returns `false` for a
+ * scan owned by another user, exactly as if it did not exist.
+ */
+export async function scanExists(id: string, ownerId: string, runner?: QueryRunner): Promise<boolean> {
   return readQuery(runner, async (r) => {
-    const result = await r.run<{ found: boolean }>("MATCH (s:Scan {id: $id}) RETURN true AS found", { id });
+    const result = await r.run<{ found: boolean }>(
+      "MATCH (:User {id: $ownerId})-[:OWNS]->(s:Scan {id: $id}) RETURN true AS found",
+      { id, ownerId },
+    );
     return result.records.length > 0;
   });
 }

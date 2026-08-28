@@ -15,7 +15,7 @@ import { pathToFileURL } from "node:url";
 
 import { settings } from "./config/env.js";
 import { closeDriver, getDriver, initDriver } from "./db/neo4jDriver.js";
-import { ensureConstraintsAndIndexes } from "./db/schema.js";
+import { ensureConstraintsAndIndexes, ensureDataMigrations } from "./db/schema.js";
 import { ensureUploadDir } from "./services/imageStorageService.js";
 import { errorHandler, notFoundHandler } from "./middleware/errorHandler.js";
 import apiRouter from "./routes/index.js";
@@ -54,6 +54,9 @@ async function main(): Promise<void> {
 
   await ensureConstraintsAndIndexes(getDriver(), settings.neo4j.database);
   log("INFO", "Neo4j constraints and indexes are up to date.");
+
+  await ensureDataMigrations(getDriver(), settings.neo4j.database);
+  log("INFO", "Neo4j data migrations are up to date.");
 
   // Created at startup rather than lazily on first upload, so a bad or
   // unwritable CIRCUITLOOP_UPLOAD_DIR surfaces immediately instead of failing

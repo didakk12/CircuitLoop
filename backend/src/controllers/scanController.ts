@@ -90,6 +90,7 @@ export async function uploadAndDetect(
 
   const components = await detectionService.detectAndPersist({
     scanId: req.params.id,
+    ownerId: user.id,
     imageBuffer: file.buffer,
     filename: file.originalname,
     contentType: file.mimetype,

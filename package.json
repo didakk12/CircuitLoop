@@ -1,0 +1,21 @@
+{
+  "name": "circuitloop",
+  "version": "0.1.0",
+  "private": true,
+  "description": "AI-powered PCB salvage assistant. Root scripts that run all three services together.",
+  "scripts": {
+    "predev": "node scripts/check-ports.mjs",
+    "dev": "concurrently --kill-others-on-fail --names ml,backend,frontend --prefix-colors magenta,cyan,green \"npm:dev:ml\" \"npm:dev:backend\" \"npm:dev:frontend\"",
+    "dev:ml": "node scripts/run-ml-service.mjs",
+    "dev:backend": "cd backend && npm run dev",
+    "dev:frontend": "node scripts/wait-for-ml.mjs && cd frontend && npm run dev",
+    "install:all": "npm install && cd backend && npm install && cd ../frontend && npm install",
+    "test": "cd backend && npm test"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2"
+  },
+  "engines": {
+    "node": ">=20.19"
+  }
+}

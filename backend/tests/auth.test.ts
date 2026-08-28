@@ -1,15 +1,31 @@
 /**
  * Authentication and scan-image ownership.
  *
- * Real Express app, real Neo4j, real bcrypt/JWT — the security properties here
- * only mean anything end-to-end, so nothing is mocked. Accounts created are
- * tracked and deleted in `afterAll`.
+ * Real Express app, real Neo4j, real bcrypt/JWT — the security primitives are
+ * never mocked, because their properties only mean anything end-to-end.
+ *
+ * The one external dependency that IS mocked is the Python ML service
+ * (`mlServiceClient`): it is not a security primitive, and the scan-image
+ * tests only need the upload endpoint to *succeed* so image persistence and
+ * ownership can be checked. Detection behaviour itself is covered by
+ * `scanUpload.test.ts`. Without this mock the suite would depend on a
+ * separate service running on port 8001. Accounts created are tracked and
+ * deleted in `afterAll`.
  */
 
 import type { Express } from "express";
 import request from "supertest";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
+vi.mock("../src/services/mlServiceClient.js", () => ({
+  mlServiceClient: {
+    detectComponents: vi.fn(),
+    searchKnowledge: vi.fn(),
+    checkHealth: vi.fn(),
+  },
+}));
+
+import { mlServiceClient } from "../src/services/mlServiceClient.js";
 import { deleteTestUsers, registerAndLogin } from "./helpers/authAgent.js";
 import { connectForTests } from "./helpers/testNeo4j.js";
 
@@ -124,6 +140,12 @@ describe.skipIf(!reachable)("auth + scan image ownership", () => {
   });
 
   describe("scan image persistence and ownership", () => {
+    beforeEach(() => {
+      // The image-persistence path runs after detection; an empty detection
+      // result is enough to reach it deterministically.
+      vi.mocked(mlServiceClient.detectComponents).mockResolvedValue({ detections: [] });
+    });
+
     it("stores the uploaded image and serves it back to its owner", async () => {
       const { agent } = await newUser();
 

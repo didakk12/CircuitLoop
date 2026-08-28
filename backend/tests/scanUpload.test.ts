@@ -20,10 +20,9 @@ vi.mock("../src/services/mlServiceClient.js", () => ({
 
 import { settings } from "../src/config/env.js";
 import { closeDriver, getDriver } from "../src/db/neo4jDriver.js";
-import * as componentRepository from "../src/repositories/componentRepository.js";
 import { mlServiceClient } from "../src/services/mlServiceClient.js";
 import { UpstreamServiceError } from "../src/utils/errors.js";
-import { deleteScanImages, deleteTestUsers, registerAndLogin } from "./helpers/authAgent.js";
+import { deleteComponentsById, deleteScanImages, deleteTestUsers, registerAndLogin } from "./helpers/authAgent.js";
 import { connectForTests } from "./helpers/testNeo4j.js";
 
 const { reachable } = await connectForTests();
@@ -50,9 +49,7 @@ describe.skipIf(!reachable)("POST /api/scans/:id/upload (integration, ml-service
   });
 
   afterEach(async () => {
-    for (const id of createdComponentIds.splice(0)) {
-      await componentRepository.deleteComponent(id).catch(() => undefined);
-    }
+    await deleteComponentsById(createdComponentIds.splice(0));
     if (createdScanIds.length > 0) {
       const session = getDriver().session({ database: settings.neo4j.database });
       try {

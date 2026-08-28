@@ -13,8 +13,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 
 import { settings } from "../src/config/env.js";
 import { closeDriver, getDriver } from "../src/db/neo4jDriver.js";
-import * as componentRepository from "../src/repositories/componentRepository.js";
-import { deleteScanImages, deleteTestUsers, registerAndLogin } from "./helpers/authAgent.js";
+import { deleteComponentsById, deleteScanImages, deleteTestUsers, registerAndLogin } from "./helpers/authAgent.js";
 import { connectForTests } from "./helpers/testNeo4j.js";
 
 const { reachable } = await connectForTests();
@@ -36,9 +35,7 @@ describe.skipIf(!reachable)("API (integration)", () => {
   });
 
   afterEach(async () => {
-    for (const id of createdComponentIds.splice(0)) {
-      await componentRepository.deleteComponent(id).catch(() => undefined);
-    }
+    await deleteComponentsById(createdComponentIds.splice(0));
     if (createdScanIds.length > 0) {
       const session = getDriver().session({ database: settings.neo4j.database });
       try {
@@ -324,6 +321,72 @@ describe.skipIf(!reachable)("API (integration)", () => {
       ]) {
         expect(response.body).toHaveProperty(key);
       }
+    });
+  });
+
+  describe("account data isolation", () => {
+    it("scopes components, test results, scans and dashboard stats to the authenticated user", async () => {
+      // Account A creates a scan, a detection batch, a standalone component, and records a test.
+      const scanA = await api.post("/api/scans").send({});
+      createdScanIds.push(scanA.body.id);
+
+      const detA = await api
+        .post("/api/detections")
+        .send({
+          scan_id: scanA.body.id,
+          detections: [{ type: "resistor", name: "A-R1", confidence: 0.9, bbox: { x1: 0, y1: 0, x2: 4, y2: 4 } }],
+        });
+      const aDetectedId = detA.body[0].id as string;
+      createdComponentIds.push(aDetectedId);
+
+      const standaloneA = await api.post("/api/components").send({ type: "ic", name: "A-U1", confidence: 0.95 });
+      createdComponentIds.push(standaloneA.body.id);
+
+      await api.post(`/api/components/${aDetectedId}/test`).send({ status: "pass", measured_value: 1 });
+
+      // Account B — brand new, in the same app, different session/cookie.
+      const authedB = await registerAndLogin(app);
+      const apiB = authedB.agent;
+      createdUserIds.push(authedB.userId);
+
+      // B's component list and dashboard are empty / zero — no trace of A's data.
+      const bComponents = await apiB.get("/api/components");
+      expect(bComponents.status).toBe(200);
+      expect(bComponents.body).toEqual([]);
+
+      const bStats = await apiB.get("/api/dashboard/stats");
+      expect(bStats.body.total_components).toBe(0);
+      expect(bStats.body.total_scans).toBe(0);
+      expect(bStats.body.passed_components).toBe(0);
+
+      // B cannot reach A's records directly by id — indistinguishable from "not found".
+      expect((await apiB.get(`/api/components/${aDetectedId}`)).status).toBe(404);
+      expect((await apiB.get(`/api/components/${standaloneA.body.id}`)).status).toBe(404);
+      expect((await apiB.get(`/api/components/${aDetectedId}/test-result`)).status).toBe(404);
+      expect((await apiB.get(`/api/scans/${scanA.body.id}`)).status).toBe(404);
+      expect((await apiB.put(`/api/components/${aDetectedId}`).send({ type: "led", confidence: 0.1 })).status).toBe(404);
+      expect((await apiB.delete(`/api/components/${aDetectedId}`)).status).toBe(404);
+      expect((await apiB.post(`/api/components/${aDetectedId}/test`).send({ status: "fail", measured_value: 0 })).status).toBe(404);
+      // B cannot file detections under A's scan.
+      expect(
+        (
+          await apiB.post("/api/detections").send({
+            scan_id: scanA.body.id,
+            detections: [{ type: "led", name: "sneaky", confidence: 0.5, bbox: { x1: 0, y1: 0, x2: 1, y2: 1 } }],
+          })
+        ).status,
+      ).toBe(404);
+
+      // A still sees its own data, unchanged by any of B's attempts, and none of B's.
+      const aNames = (await api.get("/api/components")).body.map((c: { name: string | null }) => c.name);
+      expect(aNames).toContain("A-R1");
+      expect(aNames).toContain("A-U1");
+      expect(aNames).not.toContain("sneaky");
+      expect(aNames).not.toContain("B-D1");
+      const aStats = await api.get("/api/dashboard/stats");
+      expect(aStats.body.total_components).toBeGreaterThanOrEqual(2);
+      expect(aStats.body.total_scans).toBeGreaterThanOrEqual(1);
+      expect(aStats.body.passed_components).toBeGreaterThanOrEqual(1);
     });
   });
 

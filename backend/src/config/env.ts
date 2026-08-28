@@ -36,7 +36,7 @@ export interface Settings {
   readonly mlServiceUrl: string;
   /** Max accepted size for POST /api/scans/:id/upload's image, in bytes. Same 10MB default as ml-service/config.py's own limit (defense in depth on both hops). */
   readonly maxUploadBytes: number;
-  /** Groq API key for assistant answer generation (Phase 6) — undefined = generation unavailable, services/llmClient.ts falls back to retrieval-only. Never sent to the frontend. */
+  /** Groq API key for assistant answer generation (Phase 6) — undefined = generation unavailable, assistantService.ts returns a generic unavailable message. Never sent to the frontend. */
   readonly groqApiKey: string | undefined;
   /** Groq model id — see services/llmClient.ts for why this specific default was chosen (verified against Groq's current docs, not guessed). */
   readonly groqModel: string;

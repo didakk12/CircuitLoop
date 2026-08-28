@@ -833,6 +833,87 @@ button {
   text-align: center;
 }
 
+.chat-thread {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  margin-bottom: 16px;
+  padding-right: 4px;
+  overflow-y: auto;
+}
+
+.chat-message {
+  display: flex;
+  gap: 10px;
+  max-width: 82%;
+}
+
+.chat-message-user {
+  align-self: flex-end;
+  flex-direction: row-reverse;
+}
+
+.chat-avatar {
+  flex-shrink: 0;
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  border-radius: 8px;
+  color: #8df2a8;
+  background: rgba(34, 197, 94, 0.1);
+}
+
+.chat-message-user .chat-avatar {
+  color: #cfe6da;
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.chat-bubble {
+  padding: 10px 13px;
+  border-radius: 12px;
+  font-size: 13px;
+  line-height: 1.6;
+  color: #e5eee8;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.chat-message-user .chat-bubble {
+  color: #061009;
+  border-color: transparent;
+  background: #8df2a8;
+}
+
+.chat-caret {
+  display: inline-block;
+  width: 7px;
+  height: 1em;
+  margin-left: 2px;
+  vertical-align: text-bottom;
+  background: #8df2a8;
+  animation: chat-caret-blink 1s steps(1) infinite;
+}
+
+@keyframes chat-caret-blink {
+  50% {
+    opacity: 0;
+  }
+}
+
+.chat-inline-error {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  align-self: flex-start;
+  color: #f2a08d;
+  font-size: 12px;
+}
+
 .assistant-component-select {
   display: flex;
   flex-direction: column;

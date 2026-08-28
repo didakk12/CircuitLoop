@@ -1,6 +1,10 @@
 /**
  * Aggregate stats for GET /api/dashboard/stats. Cypher matches
- * BACKEND_IMPLEMENTATION_PLAN.md §5.7 ("Dashboard stats" section) verbatim.
+ * BACKEND_IMPLEMENTATION_PLAN.md §5.7 ("Dashboard stats" section).
+ *
+ * Every count is scoped to the authenticated user's owned scans and
+ * components (`(:User)-[:OWNS]->`), so the dashboard reflects only that
+ * user's data — never a global total across all accounts.
  */
 
 import { toNumber } from "../db/mappers.js";
@@ -20,12 +24,12 @@ type StatsRow = {
   testedComponents: number;
 };
 
-export async function getStats(runner?: QueryRunner): Promise<DashboardStats> {
+export async function getStats(ownerId: string, runner?: QueryRunner): Promise<DashboardStats> {
   return readQuery(runner, async (r) => {
     const result = await r.run<StatsRow>(
-      `CALL { MATCH (s:Scan) RETURN count(s) AS totalScans }
+      `CALL { MATCH (:User {id: $ownerId})-[:OWNS]->(s:Scan) RETURN count(s) AS totalScans }
        CALL {
-         MATCH (c:Component)
+         MATCH (:User {id: $ownerId})-[:OWNS]->(c:Component)
          RETURN count(c) AS totalComponents,
                 avg(c.confidence) AS averageAiConfidence,
                 sum(CASE WHEN c.status = 'pass' THEN 1 ELSE 0 END) AS passedComponents,
@@ -35,6 +39,7 @@ export async function getStats(runner?: QueryRunner): Promise<DashboardStats> {
        RETURN totalScans, totalComponents, averageAiConfidence,
               passedComponents, failedComponents, notTestedComponents,
               (passedComponents + failedComponents) AS testedComponents`,
+      { ownerId },
     );
     const record = result.records[0];
     if (!record) {

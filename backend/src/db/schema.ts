@@ -110,3 +110,56 @@ export async function ensureConstraintsAndIndexes(
     await session.close();
   }
 }
+
+/**
+ * Idempotent data migrations run once at startup, right after the schema is
+ * ensured, in order. Unlike the constraint/index block these are ordinary
+ * writes, so each is a MERGE / guarded MATCH / owner-guarded DELETE that is
+ * safe to re-run on every boot.
+ */
+const DATA_MIGRATIONS: readonly SchemaStatement[] = [
+  {
+    // Step 1 — Backfill. Component ownership was retrofitted after some
+    // components already existed with only a `(:Scan)-[:DETECTED]->` link
+    // and no direct `(:User)-[:OWNS]->(:Component)` edge. Give every
+    // component that IS reachable from a user through their owned scan the
+    // correct ownership edge, so it stays visible to — and only to — that
+    // user. Idempotent: `WHERE NOT (u)-[:OWNS]->(c)` + MERGE.
+    description: "Backfill (:User)-[:OWNS]->(:Component) from scan ownership",
+    cypher: `MATCH (u:User)-[:OWNS]->(:Scan)-[:DETECTED]->(c:Component)
+             WHERE NOT (u)-[:OWNS]->(c)
+             MERGE (u)-[:OWNS]->(c)`,
+  },
+  {
+    // Step 2 — Delete the true orphans. After step 1, any component with no
+    // `(:User)-[:OWNS]->` edge cannot be attributed to any user (it was
+    // created through the old unauthenticated path with no scan, or under a
+    // scan nobody owns). It is unreachable through every API route, which
+    // are all owner-scoped now. Remove it along with its own test
+    // results / commands (each belongs to exactly one component, so nothing
+    // user-owned is touched). Users and scans are never deleted here — only
+    // the orphan Component nodes and the TestResult/Command nodes hanging
+    // off them. Idempotent: once run, no unowned component matches.
+    description: "Delete orphan (unowned) components and their test results / commands",
+    cypher: `MATCH (c:Component)
+             WHERE NOT ( (:User)-[:OWNS]->(c) )
+             OPTIONAL MATCH (c)-[:HAS_TEST_RESULT]->(t:TestResult)
+             OPTIONAL MATCH (c)-[:HAS_COMMAND]->(cmd:Command)
+             DETACH DELETE c, t, cmd`,
+  },
+];
+
+/**
+ * Runs the idempotent data migrations above. Called once at startup after
+ * `ensureConstraintsAndIndexes`.
+ */
+export async function ensureDataMigrations(driver: Driver, database: string | undefined): Promise<void> {
+  const session = driver.session({ database });
+  try {
+    for (const migration of DATA_MIGRATIONS) {
+      await session.run(migration.cypher);
+    }
+  } finally {
+    await session.close();
+  }
+}

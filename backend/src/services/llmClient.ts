@@ -1,8 +1,15 @@
 /**
- * LLM generation via Groq — the only file in this project that knows about
- * a specific LLM provider, per the explicit requirement to keep the
- * provider isolated to this layer. `assistantService.ts` only calls
- * `isConfigured()`/`generateAnswer()`; it has no idea Groq exists.
+ * LLM generation via Groq — one interchangeable provider adapter behind the
+ * `llmProvider.ts` seam, and the only file in this project that knows about
+ * a specific LLM provider. `assistantService.ts` imports `llmProvider.ts`,
+ * never this file, and calls only `isConfigured()` / `generateAnswer()`; it
+ * has no idea Groq exists.
+ *
+ * This adapter carries no assistant policy of its own: the system prompt
+ * (which contains the component-scope / relevance rules) is passed in by
+ * the caller. Replacing Groq means writing another file shaped like this
+ * one — the scope behaviour comes along unchanged because it lives in
+ * `assistantPrompt.ts`, not here.
  *
  * API details (endpoint, auth, request/response shape, model id) were
  * verified against Groq's official docs at implementation time, not
@@ -31,13 +38,18 @@ const GROQ_CHAT_COMPLETIONS_URL = "https://api.groq.com/openai/v1/chat/completio
 const GROQ_TIMEOUT_MS = 15_000;
 const MAX_COMPLETION_TOKENS = 700;
 
-const SYSTEM_PROMPT = `You are the CircuitLoop assistant. You help a user understand one specific electronic component that CircuitLoop has detected and stored, using only the context provided in the user's message (component details, its latest test result if any, and retrieved datasheet excerpts).
-
-Rules you must follow:
-- Answer primarily using the provided context. Do not invent component specifications, part numbers, ratings, or test results that are not present in it.
-- The retrieved datasheet excerpts may come from a different, similar, or unrelated part. If they do not clearly and specifically apply to the exact component described, say so explicitly instead of presenting them as if they do.
-- If information needed to answer the question is missing from the provided context, clearly say it's missing or uncertain rather than guessing or filling the gap with general knowledge presented as fact.
-- Be concise, technically accurate, and directly address the user's question.`;
+/** The shape every LLM provider adapter must expose. */
+export interface LlmProvider {
+  isConfigured(): boolean;
+  generateAnswer(systemPrompt: string, userPrompt: string): Promise<string>;
+  /**
+   * Same inputs as `generateAnswer`, but yields the answer in fragments as
+   * the model produces them. Throws (before the first yield) on setup
+   * failure; may also throw mid-iteration if the connection drops. Callers
+   * treat any throw the same way they treat a `generateAnswer` rejection.
+   */
+  generateAnswerStream(systemPrompt: string, userPrompt: string): AsyncGenerator<string>;
+}
 
 const groqResponseSchema = z.object({
   choices: z
@@ -49,6 +61,13 @@ const groqResponseSchema = z.object({
       }),
     )
     .min(1),
+});
+
+/** One `chat.completion.chunk` from the streaming (`stream: true`) response. */
+const groqStreamChunkSchema = z.object({
+  choices: z
+    .array(z.object({ delta: z.object({ content: z.string().nullish() }).optional() }))
+    .optional(),
 });
 
 /** True once GROQ_API_KEY is set — generation is only ever attempted when this is true. */
@@ -64,15 +83,17 @@ function describeNetworkError(error: unknown): string {
 }
 
 /**
- * Sends `userPrompt` (the question + assembled RAG/component/test context,
- * built by assistantService.ts) to Groq and returns the generated answer
- * text. Throws a generic `Error` on any failure — deliberately never
- * includes the raw response body, status text, or the API key in the
- * thrown message, so a caller logging or surfacing it can't leak either.
- * `assistantService.ts` catches this and falls back to the retrieval-only
- * response; it is never shown directly to the frontend.
+ * Sends `systemPrompt` (the provider-agnostic assistant policy —
+ * `COMPONENT_SCOPE_SYSTEM_PROMPT`, assembled in assistantPrompt.ts) and
+ * `userPrompt` (the question + assembled RAG/component/test context, built
+ * by assistantService.ts) to Groq and returns the generated answer text.
+ * Throws a generic `Error` on any failure — deliberately never includes the
+ * raw response body, status text, or the API key in the thrown message, so
+ * a caller logging or surfacing it can't leak either. `assistantService.ts`
+ * catches this and falls back to a generic unavailable message; it is never
+ * shown directly to the frontend.
  */
-export async function generateAnswer(userPrompt: string): Promise<string> {
+export async function generateAnswer(systemPrompt: string, userPrompt: string): Promise<string> {
   if (!settings.groqApiKey) {
     throw new Error("Groq is not configured");
   }
@@ -91,7 +112,7 @@ export async function generateAnswer(userPrompt: string): Promise<string> {
       body: JSON.stringify({
         model: settings.groqModel,
         messages: [
-          { role: "system", content: SYSTEM_PROMPT },
+          { role: "system", content: systemPrompt },
           { role: "user", content: userPrompt },
         ],
         temperature: 0.2,
@@ -129,4 +150,124 @@ export async function generateAnswer(userPrompt: string): Promise<string> {
   }
 
   return content;
+}
+
+/**
+ * Streaming counterpart of `generateAnswer` — sends the same request with
+ * `stream: true` and yields each `delta.content` fragment as Groq's SSE
+ * frames arrive. Parsing is defensive: unknown/partial frames and the
+ * trailing `[DONE]` sentinel are skipped rather than trusted or thrown on.
+ *
+ * The abort timer is an *idle* timeout (reset on every received chunk), not
+ * a wall-clock one: a long but healthy answer must not be cut off, while a
+ * silently stalled connection still ends.
+ */
+export async function* generateAnswerStream(
+  systemPrompt: string,
+  userPrompt: string,
+): AsyncGenerator<string> {
+  if (!settings.groqApiKey) {
+    throw new Error("Groq is not configured");
+  }
+
+  const controller = new AbortController();
+  let idleTimer = setTimeout(() => controller.abort(), GROQ_TIMEOUT_MS);
+  const resetIdleTimer = (): void => {
+    clearTimeout(idleTimer);
+    idleTimer = setTimeout(() => controller.abort(), GROQ_TIMEOUT_MS);
+  };
+
+  let response: Response;
+  try {
+    response = await fetch(GROQ_CHAT_COMPLETIONS_URL, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${settings.groqApiKey}`,
+      },
+      body: JSON.stringify({
+        model: settings.groqModel,
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: userPrompt },
+        ],
+        temperature: 0.2,
+        max_completion_tokens: MAX_COMPLETION_TOKENS,
+        stream: true,
+      }),
+      signal: controller.signal,
+    });
+  } catch (error) {
+    clearTimeout(idleTimer);
+    throw new Error(`Groq request failed: ${describeNetworkError(error)}`);
+  }
+
+  if (!response.ok) {
+    clearTimeout(idleTimer);
+    throw new Error(`Groq request failed with status ${response.status}`);
+  }
+  if (!response.body) {
+    clearTimeout(idleTimer);
+    throw new Error("Groq returned no body for a streaming request");
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let produced = false;
+
+  try {
+    for (;;) {
+      let chunk: Awaited<ReturnType<typeof reader.read>>;
+      try {
+        chunk = await reader.read();
+      } catch (error) {
+        throw new Error(`Groq stream failed: ${describeNetworkError(error)}`);
+      }
+      if (chunk.done) {
+        break;
+      }
+      resetIdleTimer();
+      buffer += decoder.decode(chunk.value, { stream: true });
+
+      // SSE frames are separated by a blank line; keep the trailing partial.
+      const frames = buffer.split("\n\n");
+      buffer = frames.pop() ?? "";
+
+      for (const frame of frames) {
+        for (const line of frame.split("\n")) {
+          const trimmed = line.trimStart();
+          if (!trimmed.startsWith("data:")) {
+            continue;
+          }
+          const data = trimmed.slice("data:".length).trim();
+          if (data === "" || data === "[DONE]") {
+            continue;
+          }
+          let parsed: unknown;
+          try {
+            parsed = JSON.parse(data);
+          } catch {
+            continue;
+          }
+          const result = groqStreamChunkSchema.safeParse(parsed);
+          if (!result.success) {
+            continue;
+          }
+          const content = result.data.choices?.[0]?.delta?.content;
+          if (typeof content === "string" && content.length > 0) {
+            produced = true;
+            yield content;
+          }
+        }
+      }
+    }
+  } finally {
+    clearTimeout(idleTimer);
+    reader.releaseLock();
+  }
+
+  if (!produced) {
+    throw new Error("Groq returned an empty stream");
+  }
 }

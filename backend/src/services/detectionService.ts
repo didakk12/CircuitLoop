@@ -127,6 +127,8 @@ function translateDetectionError(error: unknown): Error {
 
 export interface DetectAndPersistInput {
   scanId: string;
+  /** Authenticated user; the scan must belong to them and every persisted component is owned by them. */
+  ownerId: string;
   imageBuffer: Buffer;
   filename: string;
   contentType: string;
@@ -153,7 +155,7 @@ export async function detectAndPersist(input: DetectAndPersistInput): Promise<Co
     // already-tested, reused query, this one case is checked explicitly
     // here using the existing scanRepository.scanExists helper (already
     // used by componentService for the same purpose elsewhere).
-    if (!(await scanRepository.scanExists(input.scanId))) {
+    if (!(await scanRepository.scanExists(input.scanId, input.ownerId))) {
       throw new NotFoundError("Scan", input.scanId);
     }
     return [];
@@ -162,5 +164,5 @@ export async function detectAndPersist(input: DetectAndPersistInput): Promise<Co
   const componentInputs = detections.map((detection) => toComponentInput(input.scanId, detection));
 
   // Reused verbatim — no second Neo4j persistence path.
-  return componentService.createDetectionBatch(input.scanId, componentInputs);
+  return componentService.createDetectionBatch(input.scanId, componentInputs, input.ownerId);
 }

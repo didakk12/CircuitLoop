@@ -79,9 +79,27 @@ export interface ApiScan {
 
 export interface ApiAssistantResponse {
   component_id: string;
-  /** True only once a real LLM provider is configured backend-side — currently always false. */
+  /** True only once a real LLM provider is configured backend-side. */
   configured: boolean;
   message: string;
+}
+
+/** One frame from `POST /api/assistant/stream` (mirrors the backend's `AssistantStreamEvent`). */
+export type ApiAssistantStreamEvent =
+  | { type: "delta"; text: string }
+  | { type: "done"; configured: true }
+  | { type: "unavailable"; text: string };
+
+export interface AssistantStreamHandlers {
+  /** A fragment of the answer arrived — append it. */
+  onDelta: (text: string) => void;
+  /** Generation finished normally. */
+  onDone: (configured: boolean) => void;
+  /**
+   * No provider is configured, or generation failed. `text` is the generic
+   * message and should *replace* anything streamed so far.
+   */
+  onUnavailable: (text: string) => void;
 }
 
 export interface ApiDashboardStats {
@@ -205,6 +223,92 @@ export function askAssistant(componentId: string, question: string): Promise<Api
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ component_id: componentId, question }),
   });
+}
+
+/**
+ * POST /api/assistant/stream — same answer as `askAssistant`, delivered as
+ * Server-Sent Events so it can be rendered as it is generated. Resolves when
+ * the stream ends; rejects (with `ApiError`) only on a pre-stream failure
+ * such as a 404 for an unknown component or a 400 for an empty question — a
+ * provider failure mid-answer arrives as an `onUnavailable` call, not a
+ * rejection, mirroring the non-streaming endpoint.
+ */
+export async function streamAssistant(
+  componentId: string,
+  question: string,
+  handlers: AssistantStreamHandlers,
+  signal?: AbortSignal,
+): Promise<void> {
+  let response: Response;
+  try {
+    response = await fetch(`${API_BASE_URL}/api/assistant/stream`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Accept: "text/event-stream" },
+      body: JSON.stringify({ component_id: componentId, question }),
+      credentials: "include",
+      signal,
+    });
+  } catch (error) {
+    throw new ApiError(
+      0,
+      error instanceof Error ? `Could not reach the server: ${error.message}` : "Could not reach the server",
+    );
+  }
+
+  if (!response.ok) {
+    const body: unknown = await response.json().catch(() => null);
+    const detailValue =
+      body !== null && typeof body === "object" && "detail" in body ? (body as { detail: unknown }).detail : undefined;
+    const detail = typeof detailValue === "string" ? detailValue : `Request failed with status ${response.status}`;
+    throw new ApiError(response.status, detail);
+  }
+  if (!response.body) {
+    throw new ApiError(0, "The server did not return a readable stream.");
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+
+  const handleFrame = (frame: string): void => {
+    const dataLine = frame.split("\n").find((line) => line.startsWith("data:"));
+    if (!dataLine) {
+      return;
+    }
+    const payload = dataLine.slice("data:".length).trim();
+    if (!payload) {
+      return;
+    }
+    let event: ApiAssistantStreamEvent;
+    try {
+      event = JSON.parse(payload) as ApiAssistantStreamEvent;
+    } catch {
+      return;
+    }
+    if (event.type === "delta") {
+      handlers.onDelta(event.text);
+    } else if (event.type === "done") {
+      handlers.onDone(event.configured);
+    } else if (event.type === "unavailable") {
+      handlers.onUnavailable(event.text);
+    }
+  };
+
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) {
+      break;
+    }
+    buffer += decoder.decode(value, { stream: true });
+    const frames = buffer.split("\n\n");
+    buffer = frames.pop() ?? "";
+    for (const frame of frames) {
+      handleFrame(frame);
+    }
+  }
+  if (buffer.trim()) {
+    handleFrame(buffer);
+  }
 }
 
 // --- Authentication -------------------------------------------------------

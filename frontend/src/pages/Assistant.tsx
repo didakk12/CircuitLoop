@@ -1,28 +1,28 @@
-import { AlertTriangle, Bot, Send } from "lucide-react";
-import { useEffect, useState } from "react";
+import { AlertTriangle, Bot, Send, User as UserIcon } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
 import type { FormEvent } from "react";
 
-import { ApiError, askAssistant, getComponents } from "../api";
-import type { ApiAssistantResponse, ApiComponent } from "../api";
+import { ApiError, getComponents, streamAssistant } from "../api";
+import type { ApiComponent } from "../api";
+import { useAuth } from "../auth/AuthContext";
+import { loadChat, newMessageId, saveChat, type ChatMessage } from "../chatStorage";
 
 /**
- * Connected to the real POST /api/assistant (Phase 6). `configured: false`
- * in the response means the backend has no LLM provider set up yet — an
- * intentionally undecided project requirement (ML_SERVICE_INTEGRATION_PLAN.md
- * §6) — in which case `message` is still real, retrieval-based content
- * assembled from the component's data and the matching datasheet excerpts,
- * never a fabricated answer. That state is shown to the user honestly
- * rather than hidden.
+ * Connected to the real streaming assistant endpoint (POST
+ * /api/assistant/stream). The answer renders as it is generated; the
+ * component-scope policy and `OFF_TOPIC_REFUSAL` are enforced server-side
+ * and unchanged — an off-topic question simply streams back the refusal.
+ *
+ * The thread (both sides) is persisted per (user, component) via
+ * `chatStorage`, once per completed exchange, and restored on reload.
  */
 function Assistant() {
+  const { user } = useAuth();
+  const userId = user?.id ?? "anonymous";
+
   const [components, setComponents] = useState<ApiComponent[]>([]);
   const [componentId, setComponentId] = useState("");
   const [loadError, setLoadError] = useState<string | null>(null);
-
-  const [question, setQuestion] = useState("");
-  const [answer, setAnswer] = useState<ApiAssistantResponse | null>(null);
-  const [askError, setAskError] = useState<string | null>(null);
-  const [isAsking, setIsAsking] = useState(false);
 
   useEffect(() => {
     getComponents()
@@ -37,26 +37,9 @@ function Assistant() {
       });
   }, []);
 
-  const handleAsk = async (event: FormEvent) => {
-    event.preventDefault();
-    if (!componentId || !question.trim() || isAsking) {
-      return;
-    }
-
-    setIsAsking(true);
-    setAskError(null);
-
-    try {
-      const response = await askAssistant(componentId, question.trim());
-      setAnswer(response);
-    } catch (err) {
-      setAskError(err instanceof ApiError ? err.message : "Something went wrong asking the assistant.");
-    } finally {
-      setIsAsking(false);
-    }
-  };
-
   const selectedComponent = components.find((c) => c.id === componentId);
+  const componentLabel = selectedComponent?.name || selectedComponent?.type || "the selected component";
+  const hasComponents = components.length > 0;
 
   return (
     <main className="page-content">
@@ -80,7 +63,7 @@ function Assistant() {
       )}
 
       <section className="chat-panel">
-        {components.length > 0 && (
+        {hasComponents && (
           <label className="assistant-component-select">
             Component
             <select value={componentId} onChange={(event) => setComponentId(event.target.value)}>
@@ -93,60 +76,210 @@ function Assistant() {
           </label>
         )}
 
-        {!answer && !askError && (
+        {hasComponents && componentId ? (
+          // Keyed by component so switching selection remounts the thread —
+          // each component's saved conversation loads in the child's state
+          // initializer, no synchronising effect required.
+          <ComponentChat
+            key={`${userId}:${componentId}`}
+            userId={userId}
+            componentId={componentId}
+            componentLabel={componentLabel}
+          />
+        ) : (
+          <div className="chat-thread">
+            <div className="chat-welcome">
+              <div className="assistant-icon">
+                <Bot size={28} />
+              </div>
+              <h4>How can I help?</h4>
+              <p>Scan a PCB first to have components to ask about.</p>
+            </div>
+          </div>
+        )}
+      </section>
+    </main>
+  );
+}
+
+interface ComponentChatProps {
+  userId: string;
+  componentId: string;
+  componentLabel: string;
+}
+
+function ComponentChat({ userId, componentId, componentLabel }: ComponentChatProps) {
+  const [messages, setMessages] = useState<ChatMessage[]>(() => loadChat(userId, componentId));
+  const [question, setQuestion] = useState("");
+  const [askError, setAskError] = useState<string | null>(null);
+  const [isAsking, setIsAsking] = useState(false);
+  const [streamingId, setStreamingId] = useState<string | null>(null);
+
+  const threadEndRef = useRef<HTMLDivElement | null>(null);
+  // Whether this instance is still on screen, and a handle on the current
+  // in-flight stream. Both are only ever touched from the effect below or the
+  // submit handler — never during render — so they stay plain refs.
+  const mountedRef = useRef(true);
+  const streamAbortRef = useRef<AbortController | null>(null);
+
+  useEffect(() => {
+    // Set here (not just at ref init) so React's mount → unmount → remount
+    // cycle in dev leaves this `true`, not stuck `false`.
+    mountedRef.current = true;
+    return () => {
+      // Real unmount (component switch / leaving the page): stop the in-flight
+      // stream and ignore any late callbacks.
+      mountedRef.current = false;
+      streamAbortRef.current?.abort();
+    };
+  }, []);
+
+  useEffect(() => {
+    threadEndRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+  }, [messages]);
+
+  const handleAsk = async (event: FormEvent) => {
+    event.preventDefault();
+    const text = question.trim();
+    if (!text || isAsking) {
+      return;
+    }
+
+    const userMessage: ChatMessage = { id: newMessageId(), role: "user", content: text };
+    const assistantMessage: ChatMessage = { id: newMessageId(), role: "assistant", content: "" };
+    const withUserAndPlaceholder = [...messages, userMessage, assistantMessage];
+
+    setMessages(withUserAndPlaceholder);
+    setStreamingId(assistantMessage.id);
+    setQuestion("");
+    setAskError(null);
+    setIsAsking(true);
+
+    // Buffer streamed fragments and flush on an animation frame rather than
+    // re-rendering per token — pacing stays driven by the real stream, with
+    // no artificial delay.
+    let answer = "";
+    let frame = 0;
+    const flush = () => {
+      frame = 0;
+      setMessages((prev) =>
+        prev.map((m) => (m.id === assistantMessage.id ? { ...m, content: answer } : m)),
+      );
+    };
+    const scheduleFlush = () => {
+      if (frame === 0) {
+        frame = requestAnimationFrame(flush);
+      }
+    };
+
+    const controller = new AbortController();
+    streamAbortRef.current = controller;
+
+    try {
+      await streamAssistant(
+        componentId,
+        text,
+        {
+          onDelta: (fragment) => {
+            answer += fragment;
+            scheduleFlush();
+          },
+          onUnavailable: (message) => {
+            answer = message;
+          },
+          onDone: () => {
+            /* the accumulated text is the answer */
+          },
+        },
+        controller.signal,
+      );
+
+      if (frame !== 0) {
+        cancelAnimationFrame(frame);
+      }
+      if (!mountedRef.current) {
+        return;
+      }
+      const finalMessages = withUserAndPlaceholder.map((m) =>
+        m.id === assistantMessage.id ? { ...m, content: answer } : m,
+      );
+      setMessages(finalMessages);
+      saveChat(userId, componentId, finalMessages);
+    } catch (err) {
+      if (frame !== 0) {
+        cancelAnimationFrame(frame);
+      }
+      if (!mountedRef.current) {
+        return;
+      }
+      // Pre-stream failure (e.g. 404/400): keep the user's message, drop the
+      // empty assistant placeholder, surface the error separately.
+      const withoutPlaceholder = withUserAndPlaceholder.filter((m) => m.id !== assistantMessage.id);
+      setMessages(withoutPlaceholder);
+      saveChat(userId, componentId, withoutPlaceholder);
+      setAskError(err instanceof ApiError ? err.message : "Something went wrong asking the assistant.");
+    } finally {
+      if (streamAbortRef.current === controller) {
+        streamAbortRef.current = null;
+      }
+      if (mountedRef.current) {
+        setStreamingId(null);
+        setIsAsking(false);
+      }
+    }
+  };
+
+  return (
+    <>
+      <div className="chat-thread">
+        {messages.length === 0 ? (
           <div className="chat-welcome">
             <div className="assistant-icon">
               <Bot size={28} />
             </div>
-
             <h4>How can I help?</h4>
-
             <p>
-              {components.length > 0
-                ? `Ask me about ${selectedComponent?.name || selectedComponent?.type || "the selected component"} — what it does, how to test it, or how to interpret its results.`
-                : "Scan a PCB first to have components to ask about."}
+              Ask me about {componentLabel} — what it does, how to test it, or how to interpret its
+              results.
             </p>
           </div>
+        ) : (
+          messages.map((message) => (
+            <div key={message.id} className={`chat-message chat-message-${message.role}`}>
+              <div className="chat-avatar">
+                {message.role === "assistant" ? <Bot size={16} /> : <UserIcon size={16} />}
+              </div>
+              <div className="chat-bubble">
+                {message.content}
+                {streamingId === message.id && <span className="chat-caret" aria-hidden="true" />}
+              </div>
+            </div>
+          ))
         )}
 
         {askError && (
-          <div className="chat-welcome">
-            <div className="assistant-icon">
-              <AlertTriangle size={28} />
-            </div>
-            <h4>Something went wrong</h4>
-            <p>{askError}</p>
+          <div className="chat-inline-error">
+            <AlertTriangle size={15} />
+            <span>{askError}</span>
           </div>
         )}
 
-        {answer && !askError && (
-          <div className="chat-welcome">
-            <div className="assistant-icon">
-              <Bot size={28} />
-            </div>
-            {!answer.configured && (
-              <p style={{ marginBottom: "10px" }}>
-                <em>No AI generation provider is configured yet — showing the relevant information found instead.</em>
-              </p>
-            )}
-            <p style={{ whiteSpace: "pre-wrap", textAlign: "left" }}>{answer.message}</p>
-          </div>
-        )}
+        <div ref={threadEndRef} />
+      </div>
 
-        <form className="chat-input" onSubmit={(event) => void handleAsk(event)}>
-          <input
-            placeholder={components.length > 0 ? "Ask CircuitLoop..." : "Add a component first"}
-            value={question}
-            onChange={(event) => setQuestion(event.target.value)}
-            disabled={components.length === 0 || isAsking}
-          />
+      <form className="chat-input" onSubmit={(event) => void handleAsk(event)}>
+        <input
+          placeholder={`Ask about ${componentLabel}...`}
+          value={question}
+          onChange={(event) => setQuestion(event.target.value)}
+          disabled={isAsking}
+        />
 
-          <button type="submit" disabled={components.length === 0 || !question.trim() || isAsking}>
-            <Send size={18} />
-          </button>
-        </form>
-      </section>
-    </main>
+        <button type="submit" disabled={!question.trim() || isAsking}>
+          <Send size={18} />
+        </button>
+      </form>
+    </>
   );
 }
 

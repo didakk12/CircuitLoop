@@ -144,10 +144,28 @@ export interface AssistantRequest {
 
 export interface AssistantResponse {
   component_id: string;
-  /** True only once a real LLM generation call actually ran — see services/llmClient.ts. */
+  /** True only once a real LLM generation call actually ran — see services/llmProvider.ts. */
   configured: boolean;
   message: string;
 }
+
+/**
+ * One Server-Sent Event frame from `POST /api/assistant/stream` (the
+ * streaming counterpart of `POST /api/assistant`). Each frame is sent as
+ * `data: <JSON>\n\n`.
+ *
+ * - `delta`  — append `text` to the answer being streamed.
+ * - `done`   — the answer finished normally; `configured` mirrors
+ *              `AssistantResponse.configured`.
+ * - `unavailable` — no provider is configured, or the provider failed:
+ *   `text` is the generic message and it *replaces* anything streamed so
+ *   far (same guarantee as the non-streaming endpoint — no partial or
+ *   component-derived content leaks out of a failed generation).
+ */
+export type AssistantStreamEvent =
+  | { type: "delta"; text: string }
+  | { type: "done"; configured: true }
+  | { type: "unavailable"; text: string };
 
 // ---------------------------------------------------------------------------
 // Entity → response DTO mapping
