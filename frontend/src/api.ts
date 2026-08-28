@@ -205,6 +205,24 @@ export async function getLatestTestResult(componentId: string): Promise<ApiTestR
     throw error;
   }
 }
+export interface CreateTestResultInput {
+  expected_value?: number | null;
+  measured_value?: number | null;
+  unit?: string | null;
+  status: ComponentStatus;
+}
+
+/** POST /api/components/:id/test — records a component test result. */
+export function createTestResult(
+  componentId: string,
+  input: CreateTestResultInput,
+): Promise<ApiTestResult> {
+  return request<ApiTestResult>(`/api/components/${componentId}/test`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+}
 
 /** GET /api/dashboard/stats */
 export function getDashboardStats(): Promise<ApiDashboardStats> {
@@ -354,4 +372,54 @@ export async function getCurrentUser(): Promise<ApiUser | null> {
     }
     throw error;
   }
+}
+// --- Telemetry ------------------------------------------------------------
+
+export interface TelemetryMemory {
+total_gb: number;
+used_mb: number;
+free_mb: number;
+used_percent: number;
+standby_mb: number;
+modified_mb: number;
+hard_faults_per_sec: number;
+}
+
+export interface TelemetryProcess {
+pid: number;
+name: string;
+working_set_mb: number;
+commit_mb: number;
+}
+
+export interface ApiTelemetryResponse {
+telemetry: {
+agent_id: string;
+timestamp: string;
+system_metrics: {
+memory: TelemetryMemory;
+};
+top_processes: TelemetryProcess[];
+};
+response: {
+status: "NORMAL" | "ACTION_REQUIRED";
+action_id?: string;
+target_pid?: number;
+};
+received_at: string;
+}
+
+/** GET /api/v1/telemetry — latest telemetry received from the Windows agent. */
+export async function getTelemetry(): Promise<ApiTelemetryResponse | null> {
+try {
+return await request<ApiTelemetryResponse>("/api/v1/telemetry");
+} catch (error) {
+if (error instanceof ApiError && error.status === 404) {
+return null;
+}
+
+
+throw error;
+
+}
 }

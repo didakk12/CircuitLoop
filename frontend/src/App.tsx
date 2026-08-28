@@ -1,4 +1,5 @@
 import {
+  Activity,
   Bot,
   CircuitBoard,
   FileText,
@@ -26,8 +27,10 @@ import Testing from "./pages/Testing";
 import Reports from "./pages/Reports";
 import Assistant from "./pages/Assistant";
 import History from "./pages/History";
+import Telemetry from "./pages/Telemetry";
 import SignIn from "./pages/SignIn";
 import { useAuth } from "./auth/AuthContext";
+
 
 function App() {
   const location = useLocation();
@@ -77,6 +80,8 @@ function App() {
         return "AI Assistant";
       default:
         return "Dashboard";
+        case "/telemetry":
+        return "Telemetry";
     }
   };
 
@@ -155,7 +160,16 @@ function App() {
             <TestTube size={19} />
             Testing
           </NavLink>
-
+          <NavLink
+           to="/telemetry"
+          className={({ isActive }) =>
+             `nav-item ${isActive ? "active" : ""}`
+           }
+>
+           <Activity size={19} />
+          Telemetry
+          </NavLink>
+          
           <NavLink
             to="/reports"
             className={({ isActive }) =>
@@ -223,6 +237,7 @@ function App() {
           <Route path="/testing" element={<Testing />} />
           <Route path="/reports" element={<Reports />} />
           <Route path="/assistant" element={<Assistant />} />
+          <Route path="/telemetry" element={<Telemetry />} />
           {/* Already signed in — nothing to do on the sign-in route. */}
           <Route path="/signin" element={<Navigate to="/" replace />} />
         </Routes>
