@@ -35,6 +35,8 @@ export interface CreateScanRequest {
 export interface CreateComponentRequest {
   scan_id?: string | null;
   type: ComponentType;
+  /** Detector's verbatim label; optional, falls back to null (clients then show `type`). */
+  label?: string | null;
   name?: string | null;
   confidence: number;
   condition?: ComponentCondition;
@@ -57,6 +59,7 @@ export interface DetectionBoundingBox {
 
 export interface DetectionCreateRequest {
   type: ComponentType;
+  label?: string | null;
   name?: string | null;
   confidence: number;
   bbox: DetectionBoundingBox;
@@ -92,6 +95,13 @@ export interface ComponentResponse {
   id: string;
   scan_id: string | null;
   type: ComponentType;
+  /**
+   * The component's display identity — the detector's own label, e.g.
+   * "network switch". Null on components detected before this existed, so
+   * clients render `label ?? type`.
+   */
+  label: string | null;
+  /** The printed marking (part number/brand/value). Shown as markings, never as the identity. */
   name: string | null;
   confidence: number;
   condition: ComponentCondition;
@@ -188,6 +198,7 @@ export function toComponentResponse(detail: ComponentDetail): ComponentResponse 
     id: detail.id,
     scan_id: detail.scanId,
     type: detail.type,
+    label: detail.label,
     name: detail.name,
     confidence: detail.confidence,
     condition: detail.condition,
@@ -247,6 +258,7 @@ export function toDashboardStatsResponse(stats: DashboardStats): DashboardStatsR
 export interface CreateComponentInput {
   scanId: string | null;
   type: ComponentType;
+  label: string | null;
   name: string | null;
   confidence: number;
   condition: ComponentCondition;
@@ -261,6 +273,7 @@ export function fromCreateComponentRequest(body: CreateComponentRequest): Create
   return {
     scanId: body.scan_id ?? null,
     type: body.type,
+    label: body.label ?? null,
     name: body.name ?? null,
     confidence: body.confidence,
     condition: body.condition ?? "unknown",
@@ -296,6 +309,7 @@ export function fromDetectionCreateRequest(
   return {
     scanId,
     type: detection.type,
+    label: detection.label ?? null,
     name: detection.name ?? null,
     confidence: detection.confidence,
     condition: "unknown",

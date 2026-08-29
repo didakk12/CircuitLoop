@@ -147,8 +147,22 @@ NEO4J_PASSWORD=your-password-here
 
 The ML service **will not start** if these three are missing or empty.
 
+Add your Gemini key in the same file to enable the primary component detector:
+
+```dotenv
+GEMINI_API_KEY=your-key-here
+```
+
+Component detection runs in two stages. Gemini analyses the uploaded image and
+classifies the components; if it is unconfigured, times out, or errors, the
+service falls back to running the project's own trained YOLO11s model and the
+complementary Hugging Face YOLOv8s model together, merging their results. The
+service starts and detection keeps working whichever of these is available —
+only losing *all* of them stops detection.
+
 Optionally, if Tesseract is installed somewhere unusual, set its path in the
-same file:
+same file. It is used for reading component markings on the YOLO fallback path;
+Gemini reads markings itself.
 
 ```dotenv
 TESSERACT_CMD=C:\Path\To\tesseract.exe
@@ -175,7 +189,9 @@ Only add these to `backend/.env` if you need them.
 | Variable | Default | What it does |
 |---|---|---|
 | `PORT` | `8000` | Port the backend listens on |
-| `GROQ_API_KEY` | none | Enables AI answers in the Assistant page. Get a key at <https://console.groq.com>. Without it the Assistant still works, but shows plain search results instead of an AI answer |
+| `GEMINI_API_KEY` | none | **Primary** AI provider for the Assistant page. Get a key at <https://aistudio.google.com/apikey>. Falls back to Groq if unset or if a request fails |
+| `GEMINI_MODEL` | `gemini-3.5-flash-lite` | Change the Gemini model without editing code |
+| `GROQ_API_KEY` | none | **Fallback** AI provider, used only when Gemini fails. Get a key at <https://console.groq.com>. With neither key set, the Assistant shows a "temporarily unavailable" message |
 | `ML_SERVICE_URL` | `http://127.0.0.1:8001` | Where the ML service is |
 | `CIRCUITLOOP_CORS_ORIGINS` | `http://localhost:5173,http://127.0.0.1:5173` | Which web addresses may call the API |
 | `CIRCUITLOOP_MAX_UPLOAD_BYTES` | `10485760` (10 MB) | Largest image you can upload |

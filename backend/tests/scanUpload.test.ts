@@ -109,6 +109,110 @@ describe.skipIf(!reachable)("POST /api/scans/:id/upload (integration, ml-service
     expect(call?.[0].contentType).toBe("image/png");
   });
 
+  it("keeps the detected label, the normalised type and the printed marking as three distinct fields", async () => {
+    // The Cisco case, end to end through Neo4j. These three values must not
+    // collapse into each other: the UI shows `label ?? type` as the identity
+    // and `name` as markings, so if `name` ever stood in for the identity the
+    // component would display as "CISCO SG300-52 …" instead of a switch.
+    const scanId = await createScan();
+    mockDetect.mockResolvedValueOnce({
+      detections: [
+        {
+          class_name: "network switch",
+          confidence: 0.99,
+          bbox: { x1: 10, y1: 20, x2: 600, y2: 300 },
+          text: "CISCO SG300-52 52-Port Gigabit Managed Switch",
+        },
+      ],
+      source: "gemini",
+    });
+
+    const response = await api
+      .post(`/api/scans/${scanId}/upload`)
+      .attach("image", Buffer.from([0, 1, 2, 3]), { filename: "switch.jpg", contentType: "image/jpeg" });
+
+    expect(response.status).toBe(201);
+    const [component] = response.body as { id: string; type: string; label: string; name: string }[];
+
+    expect(component?.label).toBe("network switch"); // what it IS — the display identity
+    expect(component?.type).toBe("switch"); // the queryable ComponentType
+    expect(component?.name).toBe("CISCO SG300-52 52-Port Gigabit Managed Switch"); // the marking
+    // The marking is never promoted into either identity field.
+    expect(component?.label).not.toBe(component?.name);
+    expect(component?.type).not.toBe(component?.name);
+
+    createdComponentIds.push(component!.id);
+
+    // And it survives a re-read, not just the create response.
+    const reread = await api.get(`/api/components/${component!.id}`);
+    expect(reread.status).toBe(200);
+    expect(reread.body).toMatchObject({
+      label: "network switch",
+      type: "switch",
+      name: "CISCO SG300-52 52-Port Gigabit Managed Switch",
+    });
+  });
+
+  it("preserves an open-vocabulary label that has no ComponentType, alongside its marking", async () => {
+    const scanId = await createScan();
+    mockDetect.mockResolvedValueOnce({
+      detections: [
+        {
+          class_name: "potentiometer",
+          confidence: 0.9,
+          bbox: { x1: 1, y1: 2, x2: 3, y2: 4 },
+          text: "B10K BOURNS",
+        },
+      ],
+      source: "gemini",
+    });
+
+    const response = await api
+      .post(`/api/scans/${scanId}/upload`)
+      .attach("image", Buffer.from([0, 1, 2, 3]), { filename: "pot.jpg", contentType: "image/jpeg" });
+
+    expect(response.status).toBe(201);
+    const [component] = response.body as { id: string; type: string; label: string; name: string }[];
+
+    // The type is lossy here; the label is where the real answer survives, and
+    // it is what the user sees.
+    expect(component?.label).toBe("potentiometer");
+    expect(component?.type).toBe("unknown");
+    expect(component?.name).toBe("B10K BOURNS");
+
+    createdComponentIds.push(component!.id);
+  });
+
+  it("persists an open-vocabulary Gemini label as the 'unknown' type without dropping the detection", async () => {
+    // Gemini's detection vocabulary is not restricted to ComponentType, so it
+    // legitimately returns labels this schema cannot store as a type. Storing
+    // them as 'unknown' is the mapping's limit; losing the component is not
+    // acceptable, and neither is refusing the upload.
+    const scanId = await createScan();
+    mockDetect.mockResolvedValueOnce({
+      detections: [
+        { class_name: "potentiometer", confidence: 0.88, bbox: { x1: 1, y1: 2, x2: 3, y2: 4 }, text: "B10K" },
+        { class_name: "switch", confidence: 0.8, bbox: { x1: 5, y1: 6, x2: 7, y2: 8 }, text: "" },
+      ],
+      source: "gemini",
+    });
+
+    const response = await api
+      .post(`/api/scans/${scanId}/upload`)
+      .attach("image", Buffer.from([0, 1, 2, 3]), { filename: "board.png", contentType: "image/png" });
+
+    expect(response.status).toBe(201);
+    const components = response.body as { id: string; type: string; name: string | null }[];
+    expect(components).toHaveLength(2);
+    expect(components.map((c) => c.type).sort()).toEqual(["switch", "unknown"]);
+    // The potentiometer is stored, with its OCR marking, rather than discarded.
+    expect(components.find((c) => c.type === "unknown")?.name).toBe("B10K");
+
+    for (const c of components) {
+      createdComponentIds.push(c.id);
+    }
+  });
+
   it("returns 400 when no image field is provided", async () => {
     const scanId = await createScan();
     const response = await api.post(`/api/scans/${scanId}/upload`).field("confidence", "0.5");

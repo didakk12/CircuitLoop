@@ -31,13 +31,21 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from starlette.datastructures import State
 
-from config import MISSING_NEO4J_MESSAGE, load_neo4j_settings, settings
+from config import (
+    MISSING_GEMINI_MESSAGE,
+    MISSING_NEO4J_MESSAGE,
+    load_gemini_settings,
+    load_neo4j_settings,
+    settings,
+)
 from detection import (
     HF_MODEL_PATH,
     SOURCE_HF,
     DetectionService,
     ModelNotLoadedError,
 )
+from fallback_detection import SOURCE_FALLBACK, NoFallbackModelsError, run_fallback_detection
+from gemini_detection import SOURCE_GEMINI, GeminiDetectionService, GeminiUnavailableError
 from neo4j_store import RagStore
 from schemas import (
     CompareResponse,
@@ -93,12 +101,19 @@ class ServiceNotReadyError(MlServiceError):
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-    """Loads both models once at startup — the entire reason this runs as a
-    long-lived service instead of a per-request script (see
-    ML_SERVICE_INTEGRATION_PLAN.md §3). Fails fast on startup, matching the
-    TS backend's Neo4j-connection convention: a broken model/index should
-    stop the service from coming up in a silently-broken state, not be
-    discovered on the first request.
+    """Prepares the detection stages and the RAG store once at startup — the
+    entire reason this runs as a long-lived service instead of a per-request
+    script (see ML_SERVICE_INTEGRATION_PLAN.md §3).
+
+    NO DETECTOR IS FAIL-FAST. This deliberately reverses the earlier
+    convention that a broken model should stop the service from coming up:
+    detection's primary stage is now Gemini, which depends on no local
+    checkpoint, so a missing or corrupt `.pt` must degrade the fallback stage
+    rather than take the working primary down with it. Each detector is loaded
+    independently, and a failure to load any of them is logged and tolerated.
+
+    Neo4j remains fail-fast — it is the RAG store, not a detector, and nothing
+    else can serve `/search`.
     """
     detection_service = DetectionService()
 
@@ -117,15 +132,36 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     )
     search_service = SearchService(store=rag_store)
 
-    logger.info("Loading YOLO detection model...")
-    detection_service.load()
-    logger.info("Detection model ready. Classes: %s", detection_service.class_names)
+    # --- Stage 1: Gemini, the primary detector ---------------------------
+    gemini_settings = load_gemini_settings()
+    gemini_detection_service: GeminiDetectionService | None = None
+    if gemini_settings is None:
+        logger.warning(MISSING_GEMINI_MESSAGE)
+    else:
+        gemini_detection_service = GeminiDetectionService(
+            api_key=gemini_settings.api_key,
+            model=gemini_settings.model,
+            timeout_s=gemini_settings.timeout_s,
+        )
+        gemini_detection_service.load()
 
-    # Second, complementary detector for benchmarking (see /detect/compare).
-    # Deliberately NOT fail-fast, unlike the primary model above: this one is
-    # additive, so a missing or unloadable checkpoint must degrade to "compare
-    # unavailable" rather than stop the service and take the existing /detect
-    # flow down with it.
+    # --- Stage 2: the combined YOLO fallback -----------------------------
+    # The project's own trained model. It no longer serves /detect directly,
+    # but it is still loaded on every startup, still exercised by the tests,
+    # and is half of the fallback stage.
+    try:
+        logger.info("Loading custom YOLO11s detection model...")
+        detection_service.load()
+        logger.info("Custom detection model ready. Classes: %s", detection_service.class_names)
+    except Exception as error:  # noqa: BLE001 — must not block Gemini from serving
+        logger.warning(
+            "Custom YOLO11s model unavailable (%s); it will be skipped in the fallback stage.",
+            error,
+        )
+
+    # The complementary pretrained HF YOLOv8s model — the other half of the
+    # fallback stage, and still available for side-by-side benchmarking via
+    # /detect/compare.
     hf_detection_service: DetectionService | None = DetectionService(
         model_path=HF_MODEL_PATH, source=SOURCE_HF
     )
@@ -135,11 +171,16 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         logger.info("HF detection model ready. Classes: %s", hf_detection_service.class_names)
     except Exception as error:  # noqa: BLE001 — optional model must never block startup
         logger.warning(
-            "Complementary HF model unavailable (%s); /detect/compare will return 503. "
-            "/detect is unaffected and continues to use the primary model.",
+            "Complementary HF model unavailable (%s); the fallback stage will run on the "
+            "custom model alone.",
             error,
         )
         hf_detection_service = None
+
+    if gemini_detection_service is None and not detection_service.is_loaded and hf_detection_service is None:
+        # Not fatal — /search still works — but /detect cannot serve anything,
+        # so say so loudly at startup rather than only on the first upload.
+        logger.error("No detection model is available: /detect will return 503 for every request.")
 
     logger.info("Connecting to Neo4j and loading the RAG embedding model...")
     search_service.load()
@@ -147,6 +188,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
     app.state.detection_service = detection_service
     app.state.hf_detection_service = hf_detection_service
+    app.state.gemini_detection_service = gemini_detection_service
     app.state.search_service = search_service
     try:
         yield
@@ -217,10 +259,22 @@ def _state(request: Request) -> State:
 async def health(request: Request) -> HealthResponse:
     state = _state(request)
     detection_service: DetectionService = state.detection_service
+    hf_service: DetectionService | None = state.hf_detection_service
+    gemini_service: GeminiDetectionService | None = state.gemini_detection_service
     search_service: SearchService = state.search_service
     return HealthResponse(
         status="ok",
-        model_loaded=detection_service.is_loaded,
+        # Now means "detection can serve a request from some stage", not
+        # "the one YOLO model loaded" — the meaning that actually matters to
+        # the caller now that there are two independent stages.
+        model_loaded=(
+            (gemini_service is not None and gemini_service.is_loaded)
+            or detection_service.is_loaded
+            or (hf_service is not None and hf_service.is_loaded)
+        ),
+        gemini_configured=gemini_service is not None and gemini_service.is_loaded,
+        custom_model_loaded=detection_service.is_loaded,
+        hf_model_loaded=hf_service is not None and hf_service.is_loaded,
         # Now a real readiness check on Neo4j's vector index, not just an
         # in-process "did we load a file" flag as it was under FAISS.
         index_loaded=search_service.is_loaded and search_service.is_index_online(),
@@ -252,16 +306,56 @@ async def detect(
     image: UploadFile = File(...),
     confidence: float = Form(0.25),
 ) -> DetectResponse:
-    image_bytes = await _read_validated_image(image)
+    """Two-stage detection.
 
-    detection_service: DetectionService = _state(request).detection_service
+    Stage 1 is Gemini. Stage 2 — reached ONLY when Gemini fails — runs the
+    custom YOLO11s and the HF YOLOv8s together and merges their output
+    (fallback_detection.py). The YOLO models are never touched while Gemini is
+    serving, and the response shape is identical either way; only `source`
+    differs.
+
+    An undecodable image is a client error at any stage and is never retried
+    against another model: `ValueError` becomes a 400, not a fallback.
+    """
+    image_bytes = await _read_validated_image(image)
+    state = _state(request)
+    correlation_id = request.headers.get("X-Correlation-Id", "-")
+
+    gemini_service: GeminiDetectionService | None = state.gemini_detection_service
+    if gemini_service is not None:
+        try:
+            detections = gemini_service.detect(image_bytes, confidence=confidence)
+            logger.info("[%s] detection served by %s", correlation_id, SOURCE_GEMINI)
+            return _to_detect_response(detections, source=SOURCE_GEMINI)
+        except ValueError as exc:
+            raise InvalidImageError(str(exc)) from exc
+        except GeminiUnavailableError as exc:
+            logger.warning(
+                "[%s] Gemini detection unavailable (%s); falling back to the combined YOLO stage.",
+                correlation_id,
+                exc,
+            )
+
     try:
-        detections = detection_service.detect(image_bytes, confidence=confidence)
+        detections = run_fallback_detection(
+            [state.detection_service, state.hf_detection_service],
+            image_bytes,
+            confidence=confidence,
+        )
+    except NoFallbackModelsError as exc:
+        raise ServiceNotReadyError(
+            f"No detection model is available: Gemini did not serve this request and {exc}"
+        ) from exc
     except ModelNotLoadedError as exc:
         raise ServiceNotReadyError(str(exc)) from exc
     except ValueError as exc:
         raise InvalidImageError(str(exc)) from exc
 
+    logger.info("[%s] detection served by %s", correlation_id, SOURCE_FALLBACK)
+    return _to_detect_response(detections, source=SOURCE_FALLBACK)
+
+
+def _to_detect_response(detections, source: str) -> DetectResponse:
     return DetectResponse(
         detections=[
             DetectionModel(
@@ -271,7 +365,8 @@ async def detect(
                 text=d.text,
             )
             for d in detections
-        ]
+        ],
+        source=source,
     )
 
 
@@ -285,17 +380,24 @@ async def detect_compare(
     raw, unmodified detections separately.
 
     Benchmarking only. Nothing is merged, deduplicated, suppressed, or
-    ensembled — the two models may box the same physical component slightly
-    differently, and preserving both raw lists is exactly the point so overlap
-    can be evaluated later against real PCB images. `/detect` is untouched and
-    still serves the primary model alone.
+    ensembled here — the models may box the same physical component slightly
+    differently, and preserving every raw list is exactly the point so overlap
+    can be evaluated against real PCB images. The de-duplicating merge lives
+    in the fallback stage alone (fallback_detection.py); this endpoint stays
+    the honest side-by-side view of all three models.
     """
     image_bytes = await _read_validated_image(image)
 
     state = _state(request)
-    services: list[DetectionService] = [state.detection_service]
-    if state.hf_detection_service is not None:
-        services.append(state.hf_detection_service)
+    services = [
+        service
+        for service in (
+            state.gemini_detection_service,
+            state.detection_service,
+            state.hf_detection_service,
+        )
+        if service is not None and service.is_loaded
+    ]
 
     models: list[ModelDetectionsModel] = []
     for service in services:
@@ -303,6 +405,11 @@ async def detect_compare(
             detections = service.detect(image_bytes, confidence=confidence)
         except ModelNotLoadedError as exc:
             raise ServiceNotReadyError(str(exc)) from exc
+        except GeminiUnavailableError as exc:
+            # One model being unreachable must not deny the comparison of the
+            # others; it is simply absent from the result.
+            logger.warning("Excluding %s from the comparison: %s", service.source, exc)
+            continue
         except ValueError as exc:
             raise InvalidImageError(str(exc)) from exc
 

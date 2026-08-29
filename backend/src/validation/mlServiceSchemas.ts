@@ -25,6 +25,11 @@ const mlDetectionSchema = z.object({
 
 export const mlDetectResponseSchema = z.object({
   detections: z.array(mlDetectionSchema),
+  // Which ml-service stage served this response: "gemini" (the primary
+  // detector) or "yolo_fallback" (the combined custom-YOLO11s + HF-YOLOv8s
+  // stage). Optional because it is additive: nothing here branches on it, and
+  // a response without it stays valid.
+  source: z.string().nullish(),
 });
 
 const mlSearchResultSchema = z.object({
@@ -45,8 +50,14 @@ export const mlSearchResponseSchema = z.object({
 
 export const mlHealthResponseSchema = z.object({
   status: z.string(),
+  // True when SOME detection stage can serve — Gemini or either YOLO model.
   model_loaded: z.boolean(),
   index_loaded: z.boolean(),
+  // Per-stage detection readiness. Optional so an older ml-service still
+  // validates.
+  gemini_configured: z.boolean().optional(),
+  custom_model_loaded: z.boolean().optional(),
+  hf_model_loaded: z.boolean().optional(),
 });
 
 /** ml-service's own error envelope — parsed best-effort when a call fails, to surface a useful message. */

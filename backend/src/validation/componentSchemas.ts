@@ -5,6 +5,9 @@ import { componentConditionSchema, componentStatusSchema, componentTypeSchema, s
 export const createComponentBodySchema = z.object({
   scan_id: z.string().min(1).nullish(),
   type: componentTypeSchema,
+  // The detector's verbatim label. Optional so existing clients that send only
+  // `type` keep working; those components display by `type`.
+  label: z.string().nullish(),
   name: z.string().nullish(),
   confidence: z.number().min(0, "confidence must be >= 0").max(1, "confidence must be <= 1"),
   condition: componentConditionSchema.optional(),

@@ -7,7 +7,7 @@ import {
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 
-import { ApiError, getScan } from "../api";
+import { ApiError, componentIdentity, getScan } from "../api";
 import type { ApiComponent, ApiScan } from "../api";
 
 interface NaturalSize {
@@ -199,8 +199,14 @@ function Analysis() {
 
                 <div className="analysis-component-info">
                   <strong>
-                    {component.name || component.type}
+                    {componentIdentity(component)}
                   </strong>
+
+                  {component.name && (
+                    <span className="component-marking" title={component.name}>
+                      {component.name}
+                    </span>
+                  )}
 
                   <span>
                     {Math.round(component.confidence * 100)}%

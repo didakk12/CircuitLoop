@@ -10,6 +10,7 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 
 import {
   ApiError,
+  componentIdentity,
   createTestResult,
   getComponents,
   getLatestTestResult,
@@ -209,8 +210,14 @@ function Testing() {
           <div>
             <strong>
               Testing:{" "}
-              {selectedComponent.name || selectedComponent.type}
+              {componentIdentity(selectedComponent)}
             </strong>
+
+            {selectedComponent.name && (
+              <p className="component-marking">
+                Markings: {selectedComponent.name}
+              </p>
+            )}
 
             <p>
               Component ID: {selectedComponent.id.slice(0, 8)}
@@ -357,8 +364,14 @@ function Testing() {
                 </span>
 
                 <h4>
-                  {component.name || component.type}
+                  {componentIdentity(component)}
                 </h4>
+
+                {component.name && (
+                  <span className="component-marking" title={component.name}>
+                    {component.name}
+                  </span>
+                )}
               </div>
 
               <Activity size={20} />

@@ -36,7 +36,20 @@ export interface Settings {
   readonly mlServiceUrl: string;
   /** Max accepted size for POST /api/scans/:id/upload's image, in bytes. Same 10MB default as ml-service/config.py's own limit (defense in depth on both hops). */
   readonly maxUploadBytes: number;
-  /** Groq API key for assistant answer generation (Phase 6) — undefined = generation unavailable, assistantService.ts returns a generic unavailable message. Never sent to the frontend. */
+  /**
+   * Gemini API key — the PRIMARY assistant provider (services/geminiClient.ts).
+   * Undefined = the assistant falls back to Groq; if neither is configured,
+   * assistantService.ts returns a generic unavailable message. Never sent to
+   * the frontend.
+   */
+  readonly geminiApiKey: string | undefined;
+  /**
+   * Gemini model id. Verified against the live API: `gemini-2.5-flash-lite`
+   * returns 404 "no longer available to new users" and names this as its
+   * replacement. Overridable so the model can change without a code change.
+   */
+  readonly geminiModel: string;
+  /** Groq API key — the assistant's FALLBACK provider (services/llmClient.ts), used only when Gemini fails. Undefined = no fallback. Never sent to the frontend. */
   readonly groqApiKey: string | undefined;
   /** Groq model id — see services/llmClient.ts for why this specific default was chosen (verified against Groq's current docs, not guessed). */
   readonly groqModel: string;
@@ -190,6 +203,8 @@ export function loadSettings(): Settings {
     // Default matches ml-service/config.py's own default port (8001).
     mlServiceUrl: readEnv("ML_SERVICE_URL") ?? "http://127.0.0.1:8001",
     maxUploadBytes: parseIntOrDefault("CIRCUITLOOP_MAX_UPLOAD_BYTES", 10 * 1024 * 1024),
+    geminiApiKey: readEnv("GEMINI_API_KEY"),
+    geminiModel: readEnv("GEMINI_MODEL") ?? "gemini-3.5-flash-lite",
     groqApiKey: readEnv("GROQ_API_KEY"),
     groqModel: readEnv("GROQ_MODEL") ?? "openai/gpt-oss-120b",
     ragTopK: parseIntOrDefault("CIRCUITLOOP_RAG_TOP_K", 5),

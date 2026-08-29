@@ -88,6 +88,9 @@ export function mapComponentNode(node: Node): Component {
   return {
     id: String(p["id"]),
     type: p["type"] as ComponentType,
+    // Absent on every node written before the property existed; those read
+    // back as null and fall back to `type` at the display layer.
+    label: toNullableString(p["label"]),
     name: toNullableString(p["name"]),
     confidence: toNumber(p["confidence"]),
     condition: p["condition"] as ComponentCondition,
