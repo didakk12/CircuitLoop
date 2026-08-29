@@ -20,6 +20,7 @@ export const NodeLabel = {
   Command: "Command",
   HealthReport: "HealthReport",
   MonitoringAgent: "MonitoringAgent",
+  DatasheetChunk: "DatasheetChunk",
 } as const;
 
 export type NodeLabel = (typeof NodeLabel)[keyof typeof NodeLabel];
@@ -144,6 +145,33 @@ export interface MonitoringAgent {
   agentId: string;
   firstSeenAt: string; // ISO 8601
   lastSeenAt: string; // ISO 8601
+}
+
+/**
+ * (:DatasheetChunk) node properties — the RAG corpus.
+ *
+ * Unlike every other node in this file, these are **not** user data: the
+ * corpus is a global, read-only set of public vendor datasheet excerpts with
+ * no owner and no `(:User)-[:OWNS]->` edge, shared by every user. Nothing in
+ * this backend reads or writes these nodes; they are written offline by
+ * `ml-service/pipeline/ingest.py` and read at query time by
+ * `ml-service/search.py` through Neo4j's vector index. This interface exists
+ * so the graph schema stays fully described in one place — see
+ * `db/schema.ts`, which declares the constraint and indexes that back it.
+ *
+ * `embedding` is deliberately absent: it is a 384-float vector that no
+ * TypeScript code path ever needs, and typing it here would invite loading
+ * it into the API layer by accident.
+ */
+export interface DatasheetChunk {
+  /** SHA-256 over (sourceFile, partName, section, text) — see ml-service/neo4j_store.py::content_id. */
+  id: string;
+  /** The ingestion pipeline's own `{part}_{section}_{n}` label. Provenance only — NOT unique, so never key on it. */
+  chunkId: string;
+  text: string;
+  partName: string;
+  section: string;
+  sourceFile: string;
 }
 
 /** (:HealthReport) node properties (Phase H). */

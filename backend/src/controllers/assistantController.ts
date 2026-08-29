@@ -10,8 +10,8 @@ export async function askAssistant(
   res: Response<AssistantResponse>,
 ): Promise<void> {
   const user = requireUser(req);
-  const { component_id: componentId, question } = req.body;
-  const response = await assistantService.askAssistant(user.id, componentId, question);
+  const { component_id: componentId, question, history } = req.body;
+  const response = await assistantService.askAssistant(user.id, componentId, question, history);
   res.status(200).json(response);
 }
 
@@ -27,9 +27,9 @@ export async function askAssistantStream(
   res: Response,
 ): Promise<void> {
   const user = requireUser(req);
-  const { component_id: componentId, question } = req.body;
+  const { component_id: componentId, question, history } = req.body;
 
-  const stream = assistantService.streamAssistant(user.id, componentId, question);
+  const stream = assistantService.streamAssistant(user.id, componentId, question, history);
   const first = await stream.next();
 
   res.status(200);

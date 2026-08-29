@@ -32,6 +32,11 @@ const mlSearchResultSchema = z.object({
   section: z.string(),
   source_file: z.string(),
   text: z.string(),
+  // Neo4j cosine similarity. Range-checked rather than accepted as any
+  // number: a value outside [0,1] would mean the index was built with a
+  // different similarity function than the one this contract assumes, which
+  // is a real misconfiguration worth failing on rather than passing through.
+  score: z.number().min(0).max(1),
 });
 
 export const mlSearchResponseSchema = z.object({

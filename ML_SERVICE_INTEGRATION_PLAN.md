@@ -1,5 +1,29 @@
 # CircuitLoop — Python ML Service Integration Plan
 
+> ### ⚠️ Superseded in one area: RAG storage and retrieval
+>
+> This document is a **historical planning record** and is left otherwise
+> intact. One part of it no longer describes the built system: everywhere
+> below that specifies **FAISS** as the RAG vector store — notably §1's
+> inventory, §3's split table, §6, and §9 Phase 1 — has been superseded.
+>
+> **As built:** Neo4j is the RAG store *and* the vector-search layer.
+> Datasheet chunks live on `(:DatasheetChunk)` nodes with their text,
+> metadata and 384-dimension embedding on the same node, queried through the
+> `datasheet_chunk_embedding_index` vector index. `faiss-cpu` is no longer a
+> dependency, and `vector_db/` + `data/metadata.json` no longer exist.
+>
+> This also narrows §7's "Python does not write to Neo4j": that rule still
+> holds for all **application** data (User/Scan/Component/TestResult remain
+> exclusively the TypeScript backend's), but the ML service now reads and
+> writes the `(:DatasheetChunk)` corpus. See `ml-service/neo4j_store.py`'s
+> module docstring for why that exception is justified, and
+> [`ml-service/README.md`](./ml-service/README.md#rag-corpus-neo4j) for the
+> current architecture.
+>
+> §6's core recommendation — retrieval in Python, **generation in TypeScript**
+> — is unchanged and still how the system works.
+
 > **Source of truth this plan builds on:** [`CIRCUIT_LOOP_PLAN.md`](./CIRCUIT_LOOP_PLAN.md) (overall architecture/requirements) and [`BACKEND_IMPLEMENTATION_PLAN.md`](./BACKEND_IMPLEMENTATION_PLAN.md) (the TS+Neo4j backend, already implemented for Scan/Component/TestResult/Dashboard — see its §0b milestone record). This document does not redesign either; it plans **only** how the existing Python ML/RAG code integrates with that backend. **Planning only — no code, config, dependency, or route changes are made in this pass.**
 
 ---

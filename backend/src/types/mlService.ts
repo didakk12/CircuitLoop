@@ -32,6 +32,15 @@ export interface MlSearchResult {
   section: string;
   source_file: string;
   text: string;
+  /**
+   * Cosine similarity in [0, 1], as computed by Neo4j's vector index.
+   *
+   * Added when RAG storage/retrieval moved from FAISS to Neo4j: the FAISS
+   * path discarded its distance array, so nothing downstream could tell a
+   * strong datasheet match from a weak one. Bounded because the corpus and
+   * query vectors are both L2-normalized.
+   */
+  score: number;
 }
 
 export interface MlSearchResponse {
@@ -41,6 +50,7 @@ export interface MlSearchResponse {
 export interface MlHealthResponse {
   status: string;
   model_loaded: boolean;
+  /** Embedding model loaded AND the Neo4j vector index reachable and ONLINE. */
   index_loaded: boolean;
 }
 

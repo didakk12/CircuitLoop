@@ -1,5 +1,24 @@
 # Circuit Loop — Master Technical Plan
 
+> ### ⚠️ Superseded in one area: RAG storage and retrieval
+>
+> Every reference below to **FAISS** as the RAG vector store (§"role of the
+> LLM + RAG assistant", the RAG row in the status table, the architecture
+> diagrams, §10) describes the pre-migration state and is retained as
+> history.
+>
+> **As built:** Neo4j is the RAG store *and* the vector-search layer —
+> `(:DatasheetChunk)` nodes carrying chunk text, metadata and a
+> 384-dimension embedding, queried through the
+> `datasheet_chunk_embedding_index` vector index. FAISS has been removed
+> entirely. Two other statements below are also now out of date: retrieval is
+> no longer "retrieval-only" (a real LLM generation step exists in the
+> TypeScript backend), and §10's instruction not to rebuild the retrieval
+> pipeline has been deliberately revisited.
+>
+> Current architecture:
+> [`ml-service/README.md`](./ml-service/README.md#rag-corpus-neo4j).
+
 > **Status of this document:** Living reference. Written from a full audit of the repository — including branches not checked out on `main` — as of 2026-08-27. Update it whenever architecture or implementation state changes; do not let it drift from the codebase.
 
 ---

@@ -13,6 +13,9 @@ const EXPECTED_CONSTRAINT_NAMES = [
   "command_id_unique",
   "healthreport_id_unique",
   "agent_id_unique",
+  // RAG corpus. Backs the content-addressed chunk id that makes ingestion
+  // idempotent (ml-service/neo4j_store.py::content_id).
+  "datasheetchunk_id_unique",
 ];
 
 const EXPECTED_INDEX_NAMES = [
@@ -22,6 +25,10 @@ const EXPECTED_INDEX_NAMES = [
   "scan_timestamp_index",
   "command_status_index",
   "healthreport_status_index",
+  "datasheetchunk_source_file_index",
+  // Vector index backing RAG retrieval — Neo4j replaced FAISS as the
+  // similarity-search layer, so this index is now load-bearing.
+  "datasheet_chunk_embedding_index",
 ];
 
 let neo4jReachable = true;
@@ -81,6 +88,70 @@ describe.skipIf(!neo4jReachable)("Neo4j schema bootstrap (integration)", () => {
     } finally {
       await session.close();
     }
+  });
+
+  describe("RAG vector index", () => {
+    it("creates the DatasheetChunk vector index ONLINE, with the embedding model's dimensions", async () => {
+      const session = getDriver().session({ database: settings.neo4j.database });
+      try {
+        const result = await session.run<{
+          type: string;
+          state: string;
+          labelsOrTypes: string[];
+          properties: string[];
+          options: { indexConfig: Record<string, unknown> };
+        }>(
+          `SHOW INDEXES YIELD name, type, state, labelsOrTypes, properties, options
+           WHERE name = 'datasheet_chunk_embedding_index'
+           RETURN type, state, labelsOrTypes, properties, options`,
+        );
+
+        const row = result.records[0];
+        expect(row, "datasheet_chunk_embedding_index does not exist").toBeDefined();
+        expect(row!.get("type")).toBe("VECTOR");
+        // A POPULATING index silently returns incomplete results rather than
+        // erroring, so "exists" is not enough — it has to be ONLINE.
+        expect(row!.get("state")).toBe("ONLINE");
+        expect(row!.get("labelsOrTypes")).toEqual(["DatasheetChunk"]);
+        expect(row!.get("properties")).toEqual(["embedding"]);
+
+        const config = row!.get("options").indexConfig;
+        // 384 = all-MiniLM-L6-v2's width; cosine because both corpus and query
+        // vectors are L2-normalized. ml-service/neo4j_store.py asserts the same
+        // two values against the live index at startup, so this test and that
+        // check together pin the contract from both sides.
+        expect(Number(config["vector.dimensions"])).toBe(384);
+        expect(String(config["vector.similarity_function"]).toLowerCase()).toBe("cosine");
+      } finally {
+        await session.close();
+      }
+    });
+
+    it("is usable for similarity search through db.index.vector.queryNodes", async () => {
+      const session = getDriver().session({ database: settings.neo4j.database });
+      try {
+        // Query with an arbitrary unit vector: this asserts the index is
+        // queryable and returns scored nodes, not that any particular chunk
+        // matches. Empty is tolerated so the test passes on a fresh database
+        // where ingestion has not been run yet.
+        const probe = Array.from({ length: 384 }, (_, i) => (i === 0 ? 1 : 0));
+        const result = await session.run<{ score: number; label: string }>(
+          `CALL db.index.vector.queryNodes('datasheet_chunk_embedding_index', 3, $probe)
+           YIELD node, score
+           RETURN score, labels(node)[0] AS label`,
+          { probe },
+        );
+
+        for (const record of result.records) {
+          expect(record.get("label")).toBe("DatasheetChunk");
+          const score = Number(record.get("score"));
+          expect(score).toBeGreaterThanOrEqual(0);
+          expect(score).toBeLessThanOrEqual(1);
+        }
+      } finally {
+        await session.close();
+      }
+    });
   });
 
   describe("data migrations: component ownership backfill + orphan cleanup", () => {

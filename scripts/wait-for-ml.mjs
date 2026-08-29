@@ -3,8 +3,9 @@
  * Blocks until the ML service reports it has finished loading its models,
  * then exits 0. Used by `npm run dev` to hold the frontend back until the
  * whole stack can actually serve a scan — the ML service takes ~25s to load
- * two YOLO models + the sentence-transformer + the FAISS index, and a scan
- * that lands in that window fails with "ML service unreachable".
+ * two YOLO models and the sentence-transformer, and to connect to Neo4j and
+ * verify its RAG vector index; a scan that lands in that window fails with
+ * "ML service unreachable".
  *
  * Exits 1 (which tears the `npm run dev` stack down via
  * `--kill-others-on-fail`) if the service never becomes ready within the

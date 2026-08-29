@@ -158,9 +158,22 @@ export async function getComponentById(
 ): Promise<ComponentDetail | null> {
   return readQuery(runner, async (r) => {
     const result = await r.run<{ c: Node; scanId: string | null; testResults: Node[] }>(
+      // Test results come back oldest-first. `collect()` on its own guarantees
+      // no ordering at all, so without this ORDER BY the history arrived in an
+      // arbitrary order — which assistantService's test-history summary (and
+      // hence "what was the most recent result?") depends on.
+      //
+      // Known limit, measured against this server: Neo4j's `datetime()` has
+      // millisecond clock resolution (its nanosecond field is always a whole
+      // number of milliseconds), so several results written within the same
+      // millisecond carry an identical timestamp and have no recoverable
+      // relative order. Ordering them would need a monotonic sequence on the
+      // node, which is a schema change and not one this read path can make.
+      // In practice test results are recorded by a human seconds apart.
       `MATCH (:User {id: $ownerId})-[:OWNS]->(c:Component {id: $id})
        OPTIONAL MATCH (s:Scan)-[:DETECTED]->(c)
        OPTIONAL MATCH (c)-[:HAS_TEST_RESULT]->(t:TestResult)
+       WITH c, s, t ORDER BY t.timestamp ASC
        RETURN c, s.id AS scanId, collect(t) AS testResults`,
       { id, ownerId },
     );
@@ -192,6 +205,7 @@ export async function updateComponent(
        FOREACH (ignoreMe IN CASE WHEN newScan IS NULL THEN [] ELSE [1] END | CREATE (newScan)-[:DETECTED]->(c))
        WITH c
        OPTIONAL MATCH (c)-[:HAS_TEST_RESULT]->(t:TestResult)
+       WITH c, t ORDER BY t.timestamp ASC
        RETURN c, $scanId AS scanId, collect(t) AS testResults`,
       { id, ownerId, ...input },
     );

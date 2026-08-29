@@ -68,6 +68,13 @@ export interface DetectOptions {
 
 export interface SearchOptions {
   topK?: number;
+  /**
+   * Minimum cosine similarity a chunk must reach to be returned. Omitted =
+   * the ML service applies its own calibrated default. Callers in the
+   * assistant path always pass `settings.ragMinScore` so the effective
+   * production threshold is configured in exactly one place.
+   */
+  minScore?: number;
   correlationId?: string;
 }
 
@@ -213,7 +220,13 @@ export function createMlServiceClient(options: MlServiceClientOptions = {}): MlS
         init: {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ query, top_k: searchOptions.topK ?? 3 }),
+          body: JSON.stringify({
+            query,
+            top_k: searchOptions.topK ?? 3,
+            // Only sent when the caller specified one, so the ML service's
+            // own default stays authoritative for direct/CLI callers.
+            ...(searchOptions.minScore !== undefined ? { min_score: searchOptions.minScore } : {}),
+          }),
         },
         timeoutMs: timeouts.searchMs,
         retryable: true,

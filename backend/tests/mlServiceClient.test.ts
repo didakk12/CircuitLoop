@@ -1,7 +1,7 @@
 /**
  * Unit tests for mlServiceClient.ts against a real, local, throwaway HTTP
  * server standing in for ml-service — no mocking library, no dependency on
- * Python/YOLO/FAISS being installed, per ML_SERVICE_INTEGRATION_PLAN.md's
+ * Python/YOLO/Neo4j being available, per ML_SERVICE_INTEGRATION_PLAN.md's
  * explicit design goal that the TS suite must not require the Python
  * service to run. See tests/mlServiceClientLive.manual.ts for the
  * separate, real-Python-service manual verification.
@@ -90,13 +90,15 @@ describe("mlServiceClient", () => {
   });
 
   describe("searchKnowledge", () => {
-    it("sends the query/top_k body and parses a valid response", async () => {
+    it("sends the query/top_k body and parses a valid response, including the similarity score", async () => {
       let receivedBody = "";
       const { server, baseUrl } = await startMockServer((req, res) => {
         req.on("data", (chunk: Buffer) => (receivedBody += chunk.toString()));
         req.on("end", () => {
           sendJson(res, 200, {
-            results: [{ part_name: "DG401", section: "features", source_file: "x.pdf", text: "hello" }],
+            results: [
+              { part_name: "DG401", section: "features", source_file: "x.pdf", text: "hello", score: 0.73 },
+            ],
           });
         });
       });
@@ -108,6 +110,44 @@ describe("mlServiceClient", () => {
       expect(JSON.parse(receivedBody)).toEqual({ query: "operating voltage", top_k: 5 });
       expect(result.results).toHaveLength(1);
       expect(result.results[0]?.part_name).toBe("DG401");
+      // Neo4j's cosine similarity, carried through the contract since RAG
+      // storage/retrieval moved off FAISS (which exposed no score at all).
+      expect(result.results[0]?.score).toBe(0.73);
+    });
+
+    it("rejects a search result with no score as an invalid response shape", async () => {
+      // Guards the FAISS-era shape specifically: a service still answering
+      // without a score is a stale/incompatible ml-service, not something to
+      // silently accept and treat every chunk as equally relevant.
+      const { server, baseUrl } = await startMockServer((_req, res) => {
+        sendJson(res, 200, {
+          results: [{ part_name: "DG401", section: "features", source_file: "x.pdf", text: "hello" }],
+        });
+      });
+      activeServer = server;
+
+      const client = createMlServiceClient({ baseUrl, timeouts: SHORT_TIMEOUTS });
+      const error = await client.searchKnowledge("test").catch((e: unknown) => e);
+
+      expect(error).toBeInstanceOf(UpstreamServiceError);
+      expect((error as UpstreamServiceError).statusCode).toBe(502);
+    });
+
+    it("rejects a score outside [0,1], which would mean a mis-built vector index", async () => {
+      const { server, baseUrl } = await startMockServer((_req, res) => {
+        sendJson(res, 200, {
+          results: [
+            { part_name: "DG401", section: "features", source_file: "x.pdf", text: "hello", score: 4.2 },
+          ],
+        });
+      });
+      activeServer = server;
+
+      const client = createMlServiceClient({ baseUrl, timeouts: SHORT_TIMEOUTS });
+      const error = await client.searchKnowledge("test").catch((e: unknown) => e);
+
+      expect(error).toBeInstanceOf(UpstreamServiceError);
+      expect((error as UpstreamServiceError).statusCode).toBe(502);
     });
 
     it("propagates a caller-supplied correlation id as X-Correlation-Id", async () => {

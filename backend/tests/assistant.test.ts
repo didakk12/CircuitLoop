@@ -113,7 +113,17 @@ describe.skipIf(!reachable)("POST /api/assistant (integration, ml-service + llmP
       .send({ expected_value: 5, measured_value: 4.9, unit: "V", status: "pass" });
 
     mockSearch.mockResolvedValueOnce({
-      results: [{ part_name: "LM7805", section: "electrical characteristics", source_file: "x.pdf", text: "Output voltage 5V" }],
+      results: [
+        {
+          part_name: "LM7805",
+          section: "electrical characteristics",
+          source_file: "x.pdf",
+          text: "Output voltage 5V",
+          // Cosine similarity from Neo4j's vector index — part of the
+          // ml-service contract since RAG storage moved off FAISS.
+          score: 0.82,
+        },
+      ],
     });
     mockIsConfigured.mockReturnValue(true);
     mockGenerateAnswer.mockResolvedValueOnce("This is a 5V linear voltage regulator, and it passed its latest test.");
@@ -134,10 +144,11 @@ describe.skipIf(!reachable)("POST /api/assistant (integration, ml-service + llmP
 
     // Confirms RAG + component + test-result context actually reached the generation layer, not just the question.
     const userPromptSent = mockGenerateAnswer.mock.calls[0]?.[1] ?? "";
-    expect(userPromptSent).toMatch(/Known component information:/);
-    expect(userPromptSent).toMatch(/Component: ic \(U1\)/);
-    expect(userPromptSent).toMatch(/Testing \/ verification:/);
-    expect(userPromptSent).toMatch(/Latest test result: pass/);
+    expect(userPromptSent).toMatch(/=== A\. COMPONENT RECORD/);
+    expect(userPromptSent).toMatch(/Type: ic/);
+    expect(userPromptSent).toMatch(/Marking read from the component by OCR: "U1"/);
+    expect(userPromptSent).toMatch(/=== B\. TEST HISTORY/);
+    expect(userPromptSent).toMatch(/Most recent test: pass/);
     expect(userPromptSent).toMatch(/measured 4.9V/);
     expect(userPromptSent).toMatch(/LM7805/);
     expect(userPromptSent).toMatch(/Output voltage 5V/);
@@ -165,13 +176,14 @@ describe.skipIf(!reachable)("POST /api/assistant (integration, ml-service + llmP
     const userPrompt = mockGenerateAnswer.mock.calls[0]?.[1] ?? "";
 
     // Known component metadata is present...
-    expect(userPrompt).toMatch(/Known component information:/);
-    expect(userPrompt).toMatch(/Component: ic \(U1\)/);
-    // ...clearly separated from testing/verification, which says "not tested yet"...
-    expect(userPrompt).toMatch(/Testing \/ verification:/);
-    expect(userPrompt).toMatch(/has not been tested yet/i);
+    expect(userPrompt).toMatch(/=== A\. COMPONENT RECORD/);
+    expect(userPrompt).toMatch(/Type: ic/);
+    expect(userPrompt).toMatch(/Marking read from the component by OCR: "U1"/);
+    // ...clearly separated from test history, which says it was never tested...
+    expect(userPrompt).toMatch(/=== B\. TEST HISTORY/);
+    expect(userPrompt).toMatch(/never been tested/i);
     // ...and no fabricated measurement / pass-fail line is in the prompt.
-    expect(userPrompt).not.toMatch(/Latest test result:/);
+    expect(userPrompt).not.toMatch(/Most recent test:/);
     expect(userPrompt).not.toMatch(/measured \d/);
   });
 
@@ -204,7 +216,7 @@ describe.skipIf(!reachable)("POST /api/assistant (integration, ml-service + llmP
     // The no-LLM path must not become a backdoor to component data / retrieval.
     expect(mockGenerateAnswer).not.toHaveBeenCalled();
     expect(mockSearch).not.toHaveBeenCalled();
-    expect(response.body.message).not.toMatch(/Component:|datasheet|confidence/i);
+    expect(response.body.message).not.toMatch(/COMPONENT RECORD|datasheet|confidence/i);
   });
 
   it("returns the same generic unavailable message (no leaked details) when the provider fails", async () => {
@@ -257,14 +269,16 @@ describe.skipIf(!reachable)("POST /api/assistant (integration, ml-service + llmP
     expect(mockGenerateAnswer).toHaveBeenCalledTimes(1);
     // The component-scope policy still applies; the prompt is honest about the missing datasheet context.
     expect(mockGenerateAnswer.mock.calls[0]?.[0]).toBe(COMPONENT_SCOPE_SYSTEM_PROMPT);
-    expect(mockGenerateAnswer.mock.calls[0]?.[1] ?? "").toMatch(/No relevant datasheet information was found/);
+    expect(mockGenerateAnswer.mock.calls[0]?.[1] ?? "").toMatch(/No datasheet excerpt .* was relevant enough/);
   });
 
   describe("POST /api/assistant/stream (SSE)", () => {
     it("streams the answer as delta frames under the shared system prompt, then a done frame", async () => {
       const componentId = await createComponent();
       mockSearch.mockResolvedValueOnce({
-        results: [{ part_name: "LM7805", section: "features", source_file: "x.pdf", text: "5V regulator" }],
+        results: [
+          { part_name: "LM7805", section: "features", source_file: "x.pdf", text: "5V regulator", score: 0.77 },
+        ],
       });
       mockIsConfigured.mockReturnValue(true);
       mockGenerateAnswerStream.mockImplementation(streamOf(["This is ", "a 5V regulator."]));
@@ -375,7 +389,7 @@ describe.skipIf(!reachable)("POST /api/assistant (integration, ml-service + llmP
       const events = parseSse(response.text);
       expect(events).toContainEqual({ type: "delta", text: "A resistor limits current." });
       expect(events).toContainEqual({ type: "done", configured: true });
-      expect(mockGenerateAnswerStream.mock.calls[0]?.[1] ?? "").toMatch(/No relevant datasheet information was found/);
+      expect(mockGenerateAnswerStream.mock.calls[0]?.[1] ?? "").toMatch(/No datasheet excerpt .* was relevant enough/);
     });
   });
 });

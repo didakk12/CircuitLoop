@@ -40,6 +40,25 @@ export interface Settings {
   readonly groqApiKey: string | undefined;
   /** Groq model id — see services/llmClient.ts for why this specific default was chosen (verified against Groq's current docs, not guessed). */
   readonly groqModel: string;
+  /**
+   * How many datasheet chunks to ask the ML service for per assistant
+   * question, before the relevance threshold is applied. Retrieval returns
+   * *at most* this many and often fewer.
+   */
+  readonly ragTopK: number;
+  /**
+   * Minimum cosine similarity a datasheet chunk must reach to be shown to
+   * the LLM at all. Chunks below it are dropped, and the prompt then says
+   * plainly that no relevant datasheet evidence was found.
+   *
+   * Default 0.65, calibrated against the real corpus rather than guessed:
+   * off-topic queries top out around 0.63 while genuine electronics queries
+   * start around 0.67. See ml-service/neo4j_store.py::DEFAULT_MIN_SCORE for
+   * the measurements and for what this threshold deliberately does not try
+   * to decide (whether a chunk is about the *selected part* — that is
+   * established separately in assistantService.ts).
+   */
+  readonly ragMinScore: number;
   readonly tesseractCmd: string | undefined;
   readonly esp32Port: string | undefined;
   readonly esp32Baud: number | undefined;
@@ -97,6 +116,28 @@ function parseIntOrDefault(name: string, fallback: number): number {
 }
 
 /**
+ * Reads a similarity threshold, which is only meaningful as a cosine value in
+ * [0, 1]. Rejects out-of-range values loudly rather than clamping: a
+ * threshold of 5 or -1 is a misconfiguration that would silently make
+ * retrieval return everything or nothing, which is much harder to diagnose
+ * later than a startup error here.
+ */
+function parseFloatInUnitRange(name: string, fallback: number): number {
+  const raw = readEnv(name);
+  if (raw === undefined) {
+    return fallback;
+  }
+  const parsed = Number.parseFloat(raw);
+  if (Number.isNaN(parsed) || parsed < 0 || parsed > 1) {
+    throw new Error(
+      `Environment variable ${name}=${JSON.stringify(raw)} must be a number between 0 and 1 ` +
+        `(it is a cosine similarity threshold).`,
+    );
+  }
+  return parsed;
+}
+
+/**
  * Reads a secret that has no safe default. Deliberately fails fast rather than
  * falling back: a hardcoded fallback signing key would let anyone mint a valid
  * session for any deployment that forgot to set it, and the failure would be
@@ -151,6 +192,8 @@ export function loadSettings(): Settings {
     maxUploadBytes: parseIntOrDefault("CIRCUITLOOP_MAX_UPLOAD_BYTES", 10 * 1024 * 1024),
     groqApiKey: readEnv("GROQ_API_KEY"),
     groqModel: readEnv("GROQ_MODEL") ?? "openai/gpt-oss-120b",
+    ragTopK: parseIntOrDefault("CIRCUITLOOP_RAG_TOP_K", 5),
+    ragMinScore: parseFloatInUnitRange("CIRCUITLOOP_RAG_MIN_SCORE", 0.65),
     tesseractCmd: readEnv("TESSERACT_CMD"),
     esp32Port: readEnv("CIRCUITLOOP_ESP32_PORT"),
     esp32Baud: parseIntOrUndefined("CIRCUITLOOP_ESP32_BAUD"),

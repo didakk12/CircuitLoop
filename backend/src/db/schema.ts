@@ -4,7 +4,9 @@
  * Implements the constraint/index design from `BACKEND_IMPLEMENTATION_PLAN.md`
  * §5.4 verbatim — every statement is written to work on Neo4j **Community
  * Edition** (single-property uniqueness constraints and range indexes only;
- * no composite/`NODE KEY` constraints, which are Enterprise-only). Every
+ * no composite/`NODE KEY` constraints, which are Enterprise-only). The
+ * `DatasheetChunk` vector index added for RAG keeps that property: vector
+ * indexes are available in Community Edition too (since 5.11). Every
  * statement uses `IF NOT EXISTS`, so `ensureConstraintsAndIndexes` is safe
  * to call on every application startup — the same idempotent-bootstrap
  * convention the project's earlier SQLAlchemy `initialize_database()` used,
@@ -59,6 +61,13 @@ const CONSTRAINTS: readonly SchemaStatement[] = [
     description: `Unique ${NodeLabel.MonitoringAgent}.agentId`,
     cypher: `CREATE CONSTRAINT agent_id_unique IF NOT EXISTS FOR (a:${NodeLabel.MonitoringAgent}) REQUIRE a.agentId IS UNIQUE`,
   },
+  {
+    // The RAG corpus id is content-addressed (SHA-256 of the chunk's own
+    // fields), which is what makes re-running ingestion idempotent — this
+    // constraint is the database-level guarantee behind that.
+    description: `Unique ${NodeLabel.DatasheetChunk}.id`,
+    cypher: `CREATE CONSTRAINT datasheetchunk_id_unique IF NOT EXISTS FOR (d:${NodeLabel.DatasheetChunk}) REQUIRE d.id IS UNIQUE`,
+  },
 ];
 
 const INDEXES: readonly SchemaStatement[] = [
@@ -85,6 +94,32 @@ const INDEXES: readonly SchemaStatement[] = [
   {
     description: `Index ${NodeLabel.HealthReport}.status`,
     cypher: `CREATE INDEX healthreport_status_index IF NOT EXISTS FOR (h:${NodeLabel.HealthReport}) ON (h.status)`,
+  },
+  {
+    description: `Index ${NodeLabel.DatasheetChunk}.sourceFile`,
+    cypher: `CREATE INDEX datasheetchunk_source_file_index IF NOT EXISTS FOR (d:${NodeLabel.DatasheetChunk}) ON (d.sourceFile)`,
+  },
+  {
+    // Vector index backing RAG retrieval. Neo4j replaced FAISS as the RAG
+    // store and similarity-search layer, so this index is what
+    // `ml-service/search.py` queries through `db.index.vector.queryNodes`.
+    //
+    // Declared here as well as in `ml-service/neo4j_store.py` so the graph
+    // schema stays fully described in this one canonical file. Both use
+    // `IF NOT EXISTS`, so whichever process starts first wins harmlessly —
+    // and because "wins harmlessly" would stop being true if the two ever
+    // specified different values, the Python side re-reads the live index
+    // after creating it and refuses to start on a mismatch
+    // (`RagStore.ensure_schema`). Keep these two declarations in sync.
+    //
+    // 384 = all-MiniLM-L6-v2's output width. Cosine because the stored and
+    // query vectors are both L2-normalized, which makes it rank identically
+    // to the euclidean distance the old FAISS IndexFlatL2 used while giving
+    // a bounded [0,1] score the API can report.
+    description: `Vector index ${NodeLabel.DatasheetChunk}.embedding`,
+    cypher: `CREATE VECTOR INDEX datasheet_chunk_embedding_index IF NOT EXISTS
+             FOR (d:${NodeLabel.DatasheetChunk}) ON (d.embedding)
+             OPTIONS { indexConfig: { \`vector.dimensions\`: 384, \`vector.similarity_function\`: 'cosine' } }`,
   },
 ];
 

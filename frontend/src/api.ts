@@ -77,6 +77,37 @@ export interface ApiScan {
   components: ApiComponent[];
 }
 
+/**
+ * One prior turn replayed to the assistant so follow-up questions resolve.
+ * Only these two roles exist — the backend rejects anything else, and the
+ * system prompt is assembled server-side.
+ */
+export interface ApiConversationMessage {
+  role: "user" | "assistant";
+  content: string;
+}
+
+/**
+ * Most recent turns the client sends. The backend independently validates and
+ * re-trims (it never trusts this), but capping here keeps the request small
+ * and matches what the server will actually use.
+ */
+export const ASSISTANT_HISTORY_LIMIT = 10;
+
+/**
+ * Trims a thread to the turns worth replaying: drops empty placeholders (the
+ * in-flight assistant bubble has no content yet) and keeps only the most
+ * recent exchanges.
+ */
+export function toConversationHistory(
+  messages: ReadonlyArray<{ role: "user" | "assistant"; content: string }>,
+): ApiConversationMessage[] {
+  return messages
+    .filter((message) => message.content.trim().length > 0)
+    .slice(-ASSISTANT_HISTORY_LIMIT)
+    .map((message) => ({ role: message.role, content: message.content }));
+}
+
 export interface ApiAssistantResponse {
   component_id: string;
   /** True only once a real LLM provider is configured backend-side. */
@@ -235,11 +266,15 @@ export function getDashboardStats(): Promise<ApiDashboardStats> {
  * set up yet backend-side (Phase 6's documented, honest fallback state) —
  * `message` is still real, retrieval-based content, never a fake answer.
  */
-export function askAssistant(componentId: string, question: string): Promise<ApiAssistantResponse> {
+export function askAssistant(
+  componentId: string,
+  question: string,
+  history: ApiConversationMessage[] = [],
+): Promise<ApiAssistantResponse> {
   return request<ApiAssistantResponse>("/api/assistant", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ component_id: componentId, question }),
+    body: JSON.stringify({ component_id: componentId, question, history }),
   });
 }
 
@@ -256,13 +291,14 @@ export async function streamAssistant(
   question: string,
   handlers: AssistantStreamHandlers,
   signal?: AbortSignal,
+  history: ApiConversationMessage[] = [],
 ): Promise<void> {
   let response: Response;
   try {
     response = await fetch(`${API_BASE_URL}/api/assistant/stream`, {
       method: "POST",
       headers: { "Content-Type": "application/json", Accept: "text/event-stream" },
-      body: JSON.stringify({ component_id: componentId, question }),
+      body: JSON.stringify({ component_id: componentId, question, history }),
       credentials: "include",
       signal,
     });

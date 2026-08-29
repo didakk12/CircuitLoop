@@ -6,10 +6,16 @@ default); the TypeScript backend is the only intended caller (Phase 3/4,
 not built yet).
 
 Scope discipline, per the plan: this service does YOLO detection, OCR, and
-FAISS/embeddings retrieval only. It does not persist anything, does not
-talk to Neo4j, and does not decide what a detection *means* for the
-product (no ComponentType mapping) — it returns exactly what the model
-said and lets the TS backend interpret it.
+embeddings/vector retrieval only. It does not decide what a detection
+*means* for the product (no ComponentType mapping) — it returns exactly
+what the model said and lets the TS backend interpret it.
+
+Neo4j: as of the RAG migration this service does talk to Neo4j, but only
+for the datasheet corpus — `(:DatasheetChunk)` nodes and their vector
+index, which replaced the former FAISS index + metadata.json pair. It never
+touches User/Scan/Component/TestResult data; those remain exclusively the
+TS backend's, per ML_SERVICE_INTEGRATION_PLAN.md §7. See neo4j_store.py's
+module docstring for the full rationale.
 """
 
 from __future__ import annotations
@@ -25,13 +31,14 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from starlette.datastructures import State
 
-from config import settings
+from config import MISSING_NEO4J_MESSAGE, load_neo4j_settings, settings
 from detection import (
     HF_MODEL_PATH,
     SOURCE_HF,
     DetectionService,
     ModelNotLoadedError,
 )
+from neo4j_store import RagStore
 from schemas import (
     CompareResponse,
     DetectionModel,
@@ -94,7 +101,21 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     discovered on the first request.
     """
     detection_service = DetectionService()
-    search_service = SearchService()
+
+    # Neo4j is the RAG corpus store and vector index (see neo4j_store.py), so
+    # missing connection settings are a hard startup failure, exactly like a
+    # missing detection model -- not something to discover on the first
+    # /search request.
+    neo4j_settings = load_neo4j_settings()
+    if neo4j_settings is None:
+        raise RuntimeError(MISSING_NEO4J_MESSAGE)
+    rag_store = RagStore(
+        uri=neo4j_settings.uri,
+        username=neo4j_settings.username,
+        password=neo4j_settings.password,
+        database=neo4j_settings.database,
+    )
+    search_service = SearchService(store=rag_store)
 
     logger.info("Loading YOLO detection model...")
     detection_service.load()
@@ -120,21 +141,26 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         )
         hf_detection_service = None
 
-    logger.info("Loading FAISS search index...")
+    logger.info("Connecting to Neo4j and loading the RAG embedding model...")
     search_service.load()
-    logger.info("Search service ready.")
+    logger.info("Search service ready (Neo4j vector index).")
 
     app.state.detection_service = detection_service
     app.state.hf_detection_service = hf_detection_service
     app.state.search_service = search_service
-    yield
-    logger.info("ML service shutting down.")
+    try:
+        yield
+    finally:
+        # Release the Neo4j connection pool so the process exits cleanly,
+        # mirroring the TS backend's closeDriver() on shutdown.
+        search_service.close()
+        logger.info("ML service shutting down.")
 
 
 app = FastAPI(
     title="CircuitLoop ML Service",
     version="0.1.0",
-    description="Internal-only: YOLO+OCR detection and FAISS/embeddings retrieval. Not exposed to the browser.",
+    description="Internal-only: YOLO+OCR detection and Neo4j-backed vector retrieval. Not exposed to the browser.",
     lifespan=lifespan,
 )
 
@@ -195,7 +221,9 @@ async def health(request: Request) -> HealthResponse:
     return HealthResponse(
         status="ok",
         model_loaded=detection_service.is_loaded,
-        index_loaded=search_service.is_loaded,
+        # Now a real readiness check on Neo4j's vector index, not just an
+        # in-process "did we load a file" flag as it was under FAISS.
+        index_loaded=search_service.is_loaded and search_service.is_index_online(),
     )
 
 
@@ -302,13 +330,22 @@ async def detect_compare(
 async def search(request: Request, body: SearchRequest) -> SearchResponse:
     search_service: SearchService = _state(request).search_service
     try:
-        results = search_service.search(body.query, top_k=body.top_k)
+        search_kwargs = {"top_k": body.top_k}
+        if body.min_score is not None:
+            search_kwargs["min_score"] = body.min_score
+        results = search_service.search(body.query, **search_kwargs)
     except SearchServiceNotLoadedError as exc:
         raise ServiceNotReadyError(str(exc)) from exc
 
     return SearchResponse(
         results=[
-            SearchResultModel(part_name=r.part_name, section=r.section, source_file=r.source_file, text=r.text)
+            SearchResultModel(
+                part_name=r.part_name,
+                section=r.section,
+                source_file=r.source_file,
+                text=r.text,
+                score=r.score,
+            )
             for r in results
         ]
     )

@@ -2,7 +2,7 @@ import { AlertTriangle, Bot, Send, User as UserIcon } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import type { FormEvent } from "react";
 
-import { ApiError, getComponents, streamAssistant } from "../api";
+import { ApiError, getComponents, streamAssistant, toConversationHistory } from "../api";
 import type { ApiComponent } from "../api";
 import { useAuth } from "../auth/AuthContext";
 import { loadChat, newMessageId, saveChat, type ChatMessage } from "../chatStorage";
@@ -175,6 +175,13 @@ function ComponentChat({ userId, componentId, componentLabel }: ComponentChatPro
     const controller = new AbortController();
     streamAbortRef.current = controller;
 
+    // Prior turns of *this* component's thread only. `messages` is this
+    // ComponentChat's own state, and the parent keys the component on
+    // `${userId}:${componentId}`, so switching component remounts with that
+    // component's saved thread — another component's history can never be
+    // sent here.
+    const history = toConversationHistory(messages);
+
     try {
       await streamAssistant(
         componentId,
@@ -192,6 +199,7 @@ function ComponentChat({ userId, componentId, componentLabel }: ComponentChatPro
           },
         },
         controller.signal,
+        history,
       );
 
       if (frame !== 0) {

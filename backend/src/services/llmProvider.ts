@@ -5,8 +5,12 @@
  * module and this shape:
  *
  *   isConfigured(): boolean
- *   generateAnswer(systemPrompt: string, userPrompt: string): Promise<string>
- *   generateAnswerStream(systemPrompt: string, userPrompt: string): AsyncGenerator<string>
+ *   generateAnswer(systemPrompt, userPrompt, history?): Promise<string>
+ *   generateAnswerStream(systemPrompt, userPrompt, history?): AsyncGenerator<string>
+ *
+ * `history` is the bounded, validated list of prior conversation turns
+ * (Phase 3). Adapters send it as real conversation turns between the system
+ * prompt and the current question.
  *
  * `systemPrompt` is always `COMPONENT_SCOPE_SYSTEM_PROMPT` from
  * assistantPrompt.ts — the component-scope / relevance policy lives there,
@@ -18,5 +22,5 @@
  * logic is touched.
  */
 
-export type { LlmProvider } from "./llmClient.js";
+export type { ConversationTurn, LlmProvider } from "./llmClient.js";
 export { isConfigured, generateAnswer, generateAnswerStream } from "./llmClient.js";

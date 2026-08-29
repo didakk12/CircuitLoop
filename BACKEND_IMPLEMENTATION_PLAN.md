@@ -1,5 +1,27 @@
 # Circuit Loop — Backend Implementation Plan
 
+> ### ⚠️ Superseded in one area: RAG storage and retrieval
+>
+> This document repeatedly states that the RAG corpus "stays file/FAISS-based"
+> and is explicitly out of scope for the Neo4j migration (§ the dependency
+> table, §5.6, §7.2, and the "what stays on the filesystem" note). That
+> decision has since been **reversed deliberately**.
+>
+> **As built:** the RAG corpus lives in Neo4j as `(:DatasheetChunk)` nodes —
+> chunk text, metadata and a 384-dimension embedding on one node — with
+> similarity search served by the `datasheet_chunk_embedding_index` vector
+> index. FAISS and the flat-file corpus are gone. The constraint and indexes
+> backing this are declared in `backend/src/db/schema.ts` alongside every
+> other schema object.
+>
+> Nothing else in this document is affected: the graph model for
+> User/Scan/Component/TestResult, the repository layer, and the ownership
+> rules are all unchanged, and `(:DatasheetChunk)` is deliberately isolated
+> from them (no owner, no relationships to user data).
+>
+> Current architecture:
+> [`ml-service/README.md`](./ml-service/README.md#rag-corpus-neo4j).
+
 > **Source of truth this plan builds on:** [`CIRCUIT_LOOP_PLAN.md`](./CIRCUIT_LOOP_PLAN.md) (repo root). Read that first for overall project scope, architecture, data model, and phase numbering (Phases A–K) — this document expands **only the backend slice** of that plan into an implementation-ready spec. Do not duplicate decisions made there; where this plan references "Phase C", "Phase E", etc., it means the same phase defined in `CIRCUIT_LOOP_PLAN.md` §5.
 >
 > This document does not modify `CIRCUIT_LOOP_PLAN.md` in place, but `CIRCUIT_LOOP_PLAN.md` has been updated to point here for database specifics — see its note under §5/§8.

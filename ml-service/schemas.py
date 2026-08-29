@@ -58,6 +58,12 @@ class CompareResponse(BaseModel):
 class SearchRequest(BaseModel):
     query: str = Field(min_length=1)
     top_k: int = Field(default=3, ge=1, le=20)
+    # Minimum cosine similarity a chunk must reach to be returned. Optional:
+    # when omitted the service applies its own calibrated default
+    # (neo4j_store.DEFAULT_MIN_SCORE). The TypeScript backend always sends an
+    # explicit value from CIRCUITLOOP_RAG_MIN_SCORE, so the effective
+    # production threshold is configured in one place, backend-side.
+    min_score: float | None = Field(default=None, ge=0.0, le=1.0)
 
 
 class SearchResultModel(BaseModel):
@@ -65,6 +71,12 @@ class SearchResultModel(BaseModel):
     section: str
     source_file: str
     text: str
+    # Cosine similarity in [0, 1] straight from Neo4j's vector index. Added
+    # with the Neo4j migration: the previous FAISS path discarded its
+    # distance array, so a caller could not distinguish a strong hit from a
+    # weak one. Bounded because the corpus and query vectors are both
+    # L2-normalized (see neo4j_store.SIMILARITY_FUNCTION).
+    score: float = Field(ge=0.0, le=1.0)
 
 
 class SearchResponse(BaseModel):
@@ -74,6 +86,9 @@ class SearchResponse(BaseModel):
 class HealthResponse(BaseModel):
     status: str
     model_loaded: bool
+    # True when the embedding model is loaded AND the Neo4j vector index is
+    # reachable and ONLINE. The field name predates the Neo4j migration and is
+    # kept so the TS client's contract is unchanged; only what backs it moved.
     index_loaded: bool
 
 

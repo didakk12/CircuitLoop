@@ -1,36 +1,55 @@
 """
-FAISS/embeddings retrieval — consolidated from what were previously two
-duplicate implementations of the same logic, both branch-only:
-`rag/app.py` (standalone search FastAPI app) and
-`backend/services/ai_service.py` (the same retrieval re-implemented inside
-the now-retired Python CRUD backend). See ML_SERVICE_INTEGRATION_PLAN.md
-§0/§9 Phase 1 — both originals are retired; this is the single remaining
-implementation.
+Query-time RAG retrieval: embed the question, then run a vector similarity
+search against **Neo4j**.
 
-Retrieval only. No generation/LLM call — see
-ML_SERVICE_INTEGRATION_PLAN.md §6 for why generation is planned to live in
-the TypeScript backend instead, and why that's a deliberate architectural
-choice, not this phase's job to build.
+Storage and retrieval both live in Neo4j (see neo4j_store.py). This module
+owns only the part that genuinely needs the Python ML ecosystem -- turning a
+query string into an embedding with sentence-transformers -- and delegates
+the actual similarity search to Neo4j's vector index.
+
+History: this file previously loaded a FAISS `IndexFlatL2` from
+`vector_db/circuitloop.index` and resolved hits against a parallel
+`data/metadata.json` list, using the FAISS row number as an index into that
+list. Both are gone. That design had the corpus split across two files that
+had to stay positionally aligned, and it kept the RAG corpus outside the
+database the rest of the application already used. Neo4j now holds the text,
+the metadata and the vector on a single node, so a hit carries its own
+metadata and nothing can fall out of alignment.
+
+Retrieval only -- still no generation/LLM call here. That remains the
+TypeScript backend's job, per ML_SERVICE_INTEGRATION_PLAN.md section 6, and
+this change does not move it.
 """
 
 from __future__ import annotations
 
-import json
 import logging
 from dataclasses import dataclass
-from pathlib import Path
 
-import faiss
-import numpy as np
 from sentence_transformers import SentenceTransformer
+
+from neo4j_store import (
+    DEFAULT_MIN_SCORE,
+    DEFAULT_TOP_K,
+    EMBEDDING_DIMENSIONS,
+    RagStore,
+    SchemaMismatchError,
+)
 
 logger = logging.getLogger(__name__)
 
-PROJECT_ROOT = Path(__file__).resolve().parent
-DEFAULT_INDEX_PATH = PROJECT_ROOT / "vector_db" / "circuitloop.index"
-DEFAULT_METADATA_PATH = PROJECT_ROOT / "data" / "metadata.json"
 EMBEDDING_MODEL_NAME = "sentence-transformers/all-MiniLM-L6-v2"
-DEFAULT_TOP_K = 3
+
+
+def _embedding_dimension_of(model: SentenceTransformer) -> int:
+    """Output width of the loaded model.
+
+    sentence-transformers 5.x renamed `get_sentence_embedding_dimension()` to
+    `get_embedding_dimension()` and warns on the old name; both spellings are
+    accepted here so this works either side of that rename.
+    """
+    getter = getattr(model, "get_embedding_dimension", None) or model.get_sentence_embedding_dimension
+    return int(getter())
 
 
 @dataclass
@@ -39,72 +58,126 @@ class SearchResult:
     section: str
     source_file: str
     text: str
+    # Cosine similarity in [0, 1] as computed by Neo4j's vector index. New in
+    # the Neo4j migration: the previous FAISS path discarded the distance
+    # array entirely, so callers had no way to tell a strong hit from a weak
+    # one.
+    score: float
 
 
 class SearchServiceNotLoadedError(RuntimeError):
-    """Raised when search is attempted before the index/model have successfully loaded."""
+    """Raised when search is attempted before the model/store have loaded."""
 
 
 class SearchService:
-    """Loads the embedding model + FAISS index once and serves search
-    requests against them — same "load once, reuse the process's lifetime"
-    pattern as `DetectionService` in `detection.py`, for the same reason."""
+    """Loads the embedding model once and serves searches against the Neo4j
+    vector index -- same "load once, reuse for the process lifetime" pattern
+    as `DetectionService` in detection.py, for the same reason.
 
-    def __init__(
-        self,
-        index_path: Path = DEFAULT_INDEX_PATH,
-        metadata_path: Path = DEFAULT_METADATA_PATH,
-    ) -> None:
-        self._index_path = index_path
-        self._metadata_path = metadata_path
+    The `RagStore` is injected so tests can supply their own (pointing at the
+    same live database) without this class owning connection policy.
+    """
+
+    def __init__(self, store: RagStore | None = None) -> None:
+        self._store = store
         self._model: SentenceTransformer | None = None
-        self._index: faiss.Index | None = None
-        self._metadata: list[dict] | None = None
 
     def load(self) -> None:
-        if not self._index_path.exists():
-            raise FileNotFoundError(f"FAISS index not found at {self._index_path}")
-        if not self._metadata_path.exists():
-            raise FileNotFoundError(f"Metadata file not found at {self._metadata_path}")
+        if self._store is None:
+            raise SearchServiceNotLoadedError(
+                "SearchService requires a RagStore -- Neo4j is the RAG corpus store"
+            )
+
+        if not self._store.is_connected:
+            self._store.connect()
+        self._store.ensure_schema()
 
         self._model = SentenceTransformer(EMBEDDING_MODEL_NAME)
-        self._index = faiss.read_index(str(self._index_path))
-        with self._metadata_path.open("r", encoding="utf-8") as f:
-            self._metadata = json.load(f)
 
+        # The index was created for EMBEDDING_DIMENSIONS; if the model ever
+        # produces a different width, every subsequent query would be
+        # rejected by Neo4j with a confusing per-request error. Fail here
+        # instead, at startup, naming the real cause.
+        actual_dimensions = _embedding_dimension_of(self._model)
+        if actual_dimensions != EMBEDDING_DIMENSIONS:
+            raise SchemaMismatchError(
+                f"Embedding model {EMBEDDING_MODEL_NAME!r} produces {actual_dimensions} "
+                f"dimensions but the vector index expects {EMBEDDING_DIMENSIONS}. "
+                f"Rebuild the corpus with a matching model."
+            )
+
+        stats = self._store.corpus_stats()
         logger.info(
-            "Search service loaded: %d vectors in FAISS index, %d metadata records",
-            self._index.ntotal,
-            len(self._metadata),
+            "Search service loaded: %d DatasheetChunk nodes (%d with embeddings) "
+            "across %d source files, Neo4j vector index online",
+            stats.get("total", 0),
+            stats.get("with_embedding", 0),
+            stats.get("source_files", 0),
         )
 
     @property
     def is_loaded(self) -> bool:
-        return self._model is not None and self._index is not None and self._metadata is not None
+        return (
+            self._model is not None
+            and self._store is not None
+            and self._store.is_connected
+        )
 
-    def search(self, query: str, top_k: int = DEFAULT_TOP_K) -> list[SearchResult]:
-        if self._model is None or self._index is None or self._metadata is None:
+    def is_index_online(self) -> bool:
+        """Live readiness of the Neo4j vector index, for /health.
+
+        Checked per call rather than cached from startup: the index is a
+        separate resource that can be dropped or go POPULATING after this
+        process came up, and a health probe that cannot notice that is not
+        telling the caller anything useful.
+        """
+        if self._store is None or not self._store.is_connected:
+            return False
+        try:
+            return self._store.is_index_online()
+        except Exception:  # noqa: BLE001 -- health must report, never raise
+            logger.warning("Vector index status check failed", exc_info=True)
+            return False
+
+    def close(self) -> None:
+        if self._store is not None:
+            self._store.close()
+
+    def search(
+        self,
+        query: str,
+        top_k: int = DEFAULT_TOP_K,
+        min_score: float = DEFAULT_MIN_SCORE,
+    ) -> list[SearchResult]:
+        """Embed `query` and return the chunks above `min_score`, best first.
+
+        May return fewer than `top_k` results, including none at all: a query
+        with no sufficiently similar chunk yields an empty list rather than
+        weak matches padded to a fixed count. Callers must treat "no results"
+        as a real, expected answer meaning "no relevant datasheet evidence".
+        """
+        if self._model is None or self._store is None or not self._store.is_connected:
             raise SearchServiceNotLoadedError("Call load() before search()")
 
         query_embedding = self._model.encode(
             query,
             convert_to_numpy=True,
+            # Matches how the corpus vectors were produced. Required for the
+            # cosine scores to be meaningful and for parity with the previous
+            # normalized-vector FAISS behaviour.
             normalize_embeddings=True,
         ).astype("float32")
 
-        _, indices = self._index.search(np.array([query_embedding]), k=min(top_k, self._index.ntotal))
-
-        results: list[SearchResult] = []
-        for idx in indices[0]:
-            if idx < 0:
-                continue
-            chunk = self._metadata[idx]
-            results.append(
-                SearchResult(
-                    part_name=chunk["part_name"],
-                    section=chunk["section"],
-                    source_file=chunk["source_file"],
-                    text=chunk["text"],
-                )
+        hits = self._store.query_similar_chunks(
+            query_embedding.tolist(), top_k=top_k, min_score=min_score
+        )
+        return [
+            SearchResult(
+                part_name=hit.part_name,
+                section=hit.section,
+                source_file=hit.source_file,
+                text=hit.text,
+                score=hit.score,
             )
-        return results
+            for hit in hits
+        ]

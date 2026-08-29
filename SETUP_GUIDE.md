@@ -127,9 +127,11 @@ Everything else in the file is optional — leave it blank.
 
 The backend **will not start** if these three are missing or empty.
 
-**Step 4.2 — ML service (optional).**
+**Step 4.2 — ML service (required).**
 
-Skip this unless Tesseract is installed somewhere unusual. If it is:
+The ML service needs its own `.env`, because Neo4j now stores the RAG datasheet
+corpus and serves the vector similarity search. Use **the same three values**
+you just put in `backend/.env` — both processes talk to the same database.
 
 ```powershell
 cd ..\ml-service
@@ -137,7 +139,16 @@ Copy-Item .env.example .env
 notepad .env
 ```
 
-Set the path to your Tesseract program:
+```dotenv
+NEO4J_URI=neo4j://127.0.0.1:7687
+NEO4J_USER=neo4j
+NEO4J_PASSWORD=your-password-here
+```
+
+The ML service **will not start** if these three are missing or empty.
+
+Optionally, if Tesseract is installed somewhere unusual, set its path in the
+same file:
 
 ```dotenv
 TESSERACT_CMD=C:\Path\To\tesseract.exe
@@ -355,6 +366,26 @@ Open <http://localhost:7474> and run:
 MATCH (n) RETURN labels(n) AS label, count(*) AS count;
 ```
 
+To check the RAG datasheet corpus and its vector index specifically:
+
+```cypher
+MATCH (d:DatasheetChunk)
+RETURN count(d) AS chunks,
+       count(d.embedding) AS with_embedding,
+       count(DISTINCT d.sourceFile) AS datasheets;
+
+SHOW INDEXES YIELD name, type, state
+WHERE name = 'datasheet_chunk_embedding_index'
+RETURN name, type, state;
+```
+
+If `chunks` is 0, the corpus has not been loaded yet — see
+[`ml-service/README.md`](ml-service/README.md#rag-corpus-neo4j), or run:
+
+```powershell
+cd ml-service; .venv\Scripts\python.exe pipeline/ingest.py
+```
+
 ---
 
 ## 9. If something goes wrong
@@ -408,7 +439,7 @@ Invoke-RestMethod http://127.0.0.1:8001/health   # status=ok, model_loaded=True,
    port, add it to `CIRCUITLOOP_CORS_ORIGINS` in `backend/.env` and restart the
    backend.
 
-### Python says "No module named fastapi" (or ultralytics, faiss...)
+### Python says "No module named fastapi" (or ultralytics, neo4j...)
 
 You are using the wrong Python. Always run `.venv\Scripts\python.exe`, not
 plain `python`.

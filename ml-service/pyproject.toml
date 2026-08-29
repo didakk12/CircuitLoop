@@ -1,7 +1,7 @@
 [project]
 name = "circuitloop-ml-service"
 version = "0.1.0"
-description = "CircuitLoop internal ML service: YOLO+OCR component detection and FAISS/embeddings RAG retrieval. Called only by the TypeScript backend — never exposed to the browser. See ML_SERVICE_INTEGRATION_PLAN.md."
+description = "CircuitLoop internal ML service: YOLO+OCR component detection and Neo4j-backed RAG retrieval. Called only by the TypeScript backend — never exposed to the browser. See ML_SERVICE_INTEGRATION_PLAN.md."
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
@@ -13,7 +13,7 @@ dependencies = [
     "pytesseract>=0.3.13",
     "Pillow>=11.0",
     "sentence-transformers>=5.0",
-    "faiss-cpu>=1.9",
+    "neo4j>=6.0",
     "numpy>=2.0",
     "pydantic>=2.9",
 ]
