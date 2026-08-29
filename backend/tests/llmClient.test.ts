@@ -19,7 +19,12 @@ import { generateAnswer, generateAnswerStream, isConfigured } from "../src/servi
 
 interface CapturedRequest {
   url: string;
-  body: { model: string; stream?: boolean; messages: { role: string; content: string }[] };
+  body: {
+    model: string;
+    stream?: boolean;
+    reasoning_effort?: string;
+    messages: { role: string; content: string }[];
+  };
 }
 
 /** A Response whose body streams the given raw SSE text chunks (as the network would deliver them). */
@@ -102,6 +107,14 @@ describe("llmClient (Groq adapter)", () => {
       ]);
     });
 
+    it('caps reasoning effort ("low") so the reasoning model still returns content', async () => {
+      // Regression: openai/gpt-oss-120b at default effort intermittently spends
+      // the whole completion budget on reasoning tokens and returns an empty
+      // message, which surfaced as "assistant temporarily unavailable".
+      await generateAnswer("SYSTEM", "Question?");
+      expect(getRequest().body.reasoning_effort).toBe("low");
+    });
+
     it("returns the model's answer text unchanged (e.g. an off-topic refusal)", async () => {
       getRequest = stubFetchReturning("I can only help with questions about the selected component.");
 
@@ -124,6 +137,7 @@ describe("llmClient (Groq adapter)", () => {
 
       expect(fragments).toEqual(["This ", "is it."]);
       expect(getRequest().body.stream).toBe(true);
+      expect(getRequest().body.reasoning_effort).toBe("low");
       expect(getRequest().body.messages).toEqual([
         { role: "system", content: "SYS" },
         { role: "user", content: "USR" },

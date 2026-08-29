@@ -38,17 +38,58 @@ const GROQ_CHAT_COMPLETIONS_URL = "https://api.groq.com/openai/v1/chat/completio
 const GROQ_TIMEOUT_MS = 15_000;
 const MAX_COMPLETION_TOKENS = 700;
 
+/**
+ * One prior turn of the conversation. Only `user` and `assistant` exist —
+ * the system prompt is assembled server-side and is never client-supplied.
+ */
+export interface ConversationTurn {
+  role: "user" | "assistant";
+  content: string;
+}
+
 /** The shape every LLM provider adapter must expose. */
 export interface LlmProvider {
   isConfigured(): boolean;
-  generateAnswer(systemPrompt: string, userPrompt: string): Promise<string>;
+  generateAnswer(
+    systemPrompt: string,
+    userPrompt: string,
+    history?: readonly ConversationTurn[],
+  ): Promise<string>;
   /**
    * Same inputs as `generateAnswer`, but yields the answer in fragments as
    * the model produces them. Throws (before the first yield) on setup
    * failure; may also throw mid-iteration if the connection drops. Callers
    * treat any throw the same way they treat a `generateAnswer` rejection.
    */
-  generateAnswerStream(systemPrompt: string, userPrompt: string): AsyncGenerator<string>;
+  generateAnswerStream(
+    systemPrompt: string,
+    userPrompt: string,
+    history?: readonly ConversationTurn[],
+  ): AsyncGenerator<string>;
+}
+
+/**
+ * Assembles the Groq `messages` array.
+ *
+ * The system prompt is always first and is never something a caller's history
+ * can displace or duplicate: `ConversationTurn` cannot express a system role,
+ * so replayed turns can only ever appear as ordinary user/assistant messages
+ * between the policy and the current question.
+ *
+ * Prior turns are sent as real conversation turns rather than being flattened
+ * into the user prompt, so the model treats them as dialogue — which is what
+ * makes a bare follow-up like "why?" resolve against the previous answer.
+ */
+function buildMessages(
+  systemPrompt: string,
+  userPrompt: string,
+  history: readonly ConversationTurn[],
+): Array<{ role: string; content: string }> {
+  return [
+    { role: "system", content: systemPrompt },
+    ...history.map((turn) => ({ role: turn.role, content: turn.content })),
+    { role: "user", content: userPrompt },
+  ];
 }
 
 const groqResponseSchema = z.object({
@@ -93,7 +134,11 @@ function describeNetworkError(error: unknown): string {
  * catches this and falls back to a generic unavailable message; it is never
  * shown directly to the frontend.
  */
-export async function generateAnswer(systemPrompt: string, userPrompt: string): Promise<string> {
+export async function generateAnswer(
+  systemPrompt: string,
+  userPrompt: string,
+  history: readonly ConversationTurn[] = [],
+): Promise<string> {
   if (!settings.groqApiKey) {
     throw new Error("Groq is not configured");
   }
@@ -111,12 +156,16 @@ export async function generateAnswer(systemPrompt: string, userPrompt: string): 
       },
       body: JSON.stringify({
         model: settings.groqModel,
-        messages: [
-          { role: "system", content: systemPrompt },
-          { role: "user", content: userPrompt },
-        ],
+        messages: buildMessages(systemPrompt, userPrompt, history),
         temperature: 0.2,
         max_completion_tokens: MAX_COMPLETION_TOKENS,
+        // `openai/gpt-oss-120b` is a reasoning model: it emits reasoning-channel
+        // tokens before content and intermittently spends the whole completion
+        // budget there, returning an empty message ("Groq returned an empty
+        // response"/"...stream"). Capping the reasoning effort keeps it
+        // producing actual content. Measured: eliminates the empty-response
+        // failures seen at the default effort.
+        reasoning_effort: "low",
       }),
       signal: controller.signal,
     });
@@ -165,6 +214,7 @@ export async function generateAnswer(systemPrompt: string, userPrompt: string): 
 export async function* generateAnswerStream(
   systemPrompt: string,
   userPrompt: string,
+  history: readonly ConversationTurn[] = [],
 ): AsyncGenerator<string> {
   if (!settings.groqApiKey) {
     throw new Error("Groq is not configured");
@@ -187,12 +237,12 @@ export async function* generateAnswerStream(
       },
       body: JSON.stringify({
         model: settings.groqModel,
-        messages: [
-          { role: "system", content: systemPrompt },
-          { role: "user", content: userPrompt },
-        ],
+        messages: buildMessages(systemPrompt, userPrompt, history),
         temperature: 0.2,
         max_completion_tokens: MAX_COMPLETION_TOKENS,
+        // See generateAnswer: caps the reasoning model's reasoning-channel
+        // spend so a streamed response actually carries content deltas.
+        reasoning_effort: "low",
         stream: true,
       }),
       signal: controller.signal,
