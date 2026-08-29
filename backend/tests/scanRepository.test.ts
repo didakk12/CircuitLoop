@@ -82,6 +82,7 @@ describe.skipIf(!reachable)("scanRepository (integration)", () => {
       {
         scanId: scan.id,
         type: "resistor",
+        label: "resistor",
         name: "R1",
         confidence: 0.9,
         condition: "unknown",
@@ -113,6 +114,7 @@ describe.skipIf(!reachable)("scanRepository (integration)", () => {
       {
         scanId: second.id,
         type: "led",
+        label: "led",
         name: null,
         confidence: 0.5,
         condition: "unknown",

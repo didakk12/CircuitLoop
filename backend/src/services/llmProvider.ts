@@ -16,11 +16,46 @@
  * assistantPrompt.ts — the component-scope / relevance policy lives there,
  * never in a provider adapter.
  *
- * Switching LLM provider later = write a new adapter module exposing those
- * functions (mirroring llmClient.ts) and change the single re-export below
- * to point at it. No other file changes, and none of the component-relevance
- * logic is touched.
+ * Behind this seam sits `llmFallback.ts`, which chains two adapters:
+ *
+ *   Gemini (geminiClient.ts)  — primary
+ *   Groq   (llmClient.ts)     — fallback, used only when Gemini fails
+ *
+ * The types below live here rather than in an adapter because they describe
+ * the seam itself, not any one provider. Adding or reordering providers is a
+ * change to `llmFallback.ts` and this one re-export; no other file changes,
+ * and none of the component-relevance logic is touched.
  */
 
-export type { ConversationTurn, LlmProvider } from "./llmClient.js";
-export { isConfigured, generateAnswer, generateAnswerStream } from "./llmClient.js";
+/**
+ * One prior turn of the conversation. Only `user` and `assistant` exist —
+ * the system prompt is assembled server-side and is never client-supplied.
+ * (Adapters map `assistant` onto whatever their provider calls that role.)
+ */
+export interface ConversationTurn {
+  role: "user" | "assistant";
+  content: string;
+}
+
+/** The shape every LLM provider adapter must expose. */
+export interface LlmProvider {
+  isConfigured(): boolean;
+  generateAnswer(
+    systemPrompt: string,
+    userPrompt: string,
+    history?: readonly ConversationTurn[],
+  ): Promise<string>;
+  /**
+   * Same inputs as `generateAnswer`, but yields the answer in fragments as
+   * the model produces them. Throws (before the first yield) on setup
+   * failure; may also throw mid-iteration if the connection drops. Callers
+   * treat any throw the same way they treat a `generateAnswer` rejection.
+   */
+  generateAnswerStream(
+    systemPrompt: string,
+    userPrompt: string,
+    history?: readonly ConversationTurn[],
+  ): AsyncGenerator<string>;
+}
+
+export { isConfigured, generateAnswer, generateAnswerStream } from "./llmFallback.js";

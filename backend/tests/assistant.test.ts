@@ -232,7 +232,9 @@ describe.skipIf(!reachable)("POST /api/assistant (integration, ml-service + llmP
     expect(response.status).toBe(200);
     expect(response.body.configured).toBe(false);
     expect(response.body.message).toBe(ASSISTANT_UNAVAILABLE_MESSAGE);
-    expect(response.body.message).not.toMatch(/500|GROQ_API_KEY|Bearer|api\.groq\.com/i);
+    expect(response.body.message).not.toMatch(
+      /500|GROQ_API_KEY|Bearer|api\.groq\.com|GEMINI_API_KEY|x-goog-api-key|googleapis\.com/i,
+    );
   });
 
   it("returns 404 when the component doesn't exist (generation never attempted)", async () => {
@@ -351,7 +353,7 @@ describe.skipIf(!reachable)("POST /api/assistant (integration, ml-service + llmP
       expect(events[0]).toEqual({ type: "delta", text: "partial answer" });
       expect(events.at(-1)).toEqual({ type: "unavailable", text: ASSISTANT_UNAVAILABLE_MESSAGE });
       expect(events).not.toContainEqual({ type: "done", configured: true });
-      expect(response.text).not.toMatch(/terminated|Groq/i);
+      expect(response.text).not.toMatch(/terminated|Groq|Gemini|googleapis/i);
     });
 
     it("returns a normal JSON 404 (not an SSE stream) for an unknown component", async () => {

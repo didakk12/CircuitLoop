@@ -688,6 +688,23 @@ button {
   font-size: 12px;
 }
 
+/**
+ * The marking printed on the part (part number, brand, value) — shown BESIDE
+ * the component's identity, never in place of it. Deliberately quieter than
+ * the type and monospaced, because it is a transcription of what is stamped on
+ * the component rather than a name we chose.
+ */
+.component-marking {
+  display: block;
+  margin-top: 3px;
+  overflow: hidden;
+  color: #8a9a92;
+  font-family: ui-monospace, "SFMono-Regular", "Cascadia Code", Menlo, monospace;
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .component-confidence {
   display: flex;
   justify-content: space-between;

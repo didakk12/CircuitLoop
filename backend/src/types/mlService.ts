@@ -25,6 +25,16 @@ export interface MlDetection {
 
 export interface MlDetectResponse {
   detections: MlDetection[];
+  /**
+   * Which ml-service stage produced these detections: `"gemini"` (the primary
+   * detector) or `"yolo_fallback"` (the combined custom-YOLO11s + HF-YOLOv8s
+   * stage that runs only when Gemini fails).
+   *
+   * Optional and purely informational — the detection shape is identical
+   * either way and nothing branches on this. It exists so a scan can be
+   * attributed to a stage when debugging.
+   */
+  source?: string | null;
 }
 
 export interface MlSearchResult {
@@ -49,9 +59,18 @@ export interface MlSearchResponse {
 
 export interface MlHealthResponse {
   status: string;
+  /**
+   * True when SOME detection stage can serve a request — Gemini or either
+   * YOLO model. Its meaning widened when detection gained a second stage; the
+   * per-stage flags below say which.
+   */
   model_loaded: boolean;
   /** Embedding model loaded AND the Neo4j vector index reachable and ONLINE. */
   index_loaded: boolean;
+  /** Per-stage detection readiness; absent on an older ml-service. */
+  gemini_configured?: boolean;
+  custom_model_loaded?: boolean;
+  hf_model_loaded?: boolean;
 }
 
 /** Matches ml-service's ErrorResponse — what it sends back on a 4xx/5xx of its own. */

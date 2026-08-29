@@ -2,7 +2,7 @@ import { AlertTriangle, Cpu, Search, TestTube } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 
-import { ApiError, getComponents } from "../api";
+import { ApiError, componentIdentity, getComponents } from "../api";
 import type { ApiComponent } from "../api";
 
 function Components() {
@@ -105,8 +105,14 @@ function Components() {
             <h4>{component.id.slice(0, 8)}</h4>
 
             <p className="component-type">
-              {component.name || component.type}
+              {componentIdentity(component)}
             </p>
+
+            {component.name && (
+              <p className="component-marking" title={component.name}>
+                {component.name}
+              </p>
+            )}
 
             <div className="component-confidence">
               <span>Identification</span>

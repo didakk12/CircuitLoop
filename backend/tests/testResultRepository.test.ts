@@ -30,6 +30,7 @@ async function clockTick(): Promise<void> {
 const baseComponent: ComponentInput = {
   scanId: null,
   type: "capacitor",
+  label: "capacitor",
   name: "C1",
   confidence: 0.8,
   condition: "unknown",

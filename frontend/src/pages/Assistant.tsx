@@ -2,7 +2,7 @@ import { AlertTriangle, Bot, Send, User as UserIcon } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import type { FormEvent } from "react";
 
-import { ApiError, getComponents, streamAssistant, toConversationHistory } from "../api";
+import { ApiError, componentIdentity, getComponents, streamAssistant, toConversationHistory } from "../api";
 import type { ApiComponent } from "../api";
 import { useAuth } from "../auth/AuthContext";
 import { loadChat, newMessageId, saveChat, type ChatMessage } from "../chatStorage";
@@ -38,7 +38,9 @@ function Assistant() {
   }, []);
 
   const selectedComponent = components.find((c) => c.id === componentId);
-  const componentLabel = selectedComponent?.name || selectedComponent?.type || "the selected component";
+  const componentLabel = selectedComponent
+    ? componentIdentity(selectedComponent)
+    : "the selected component";
   const hasComponents = components.length > 0;
 
   return (
@@ -69,7 +71,8 @@ function Assistant() {
             <select value={componentId} onChange={(event) => setComponentId(event.target.value)}>
               {components.map((component) => (
                 <option value={component.id} key={component.id}>
-                  {component.name || component.type} ({component.type})
+                  {componentIdentity(component)}
+                  {component.name ? ` — ${component.name}` : ""}
                 </option>
               ))}
             </select>

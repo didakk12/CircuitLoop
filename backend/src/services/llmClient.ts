@@ -1,14 +1,18 @@
 /**
- * LLM generation via Groq — one interchangeable provider adapter behind the
- * `llmProvider.ts` seam, and the only file in this project that knows about
- * a specific LLM provider. `assistantService.ts` imports `llmProvider.ts`,
- * never this file, and calls only `isConfigured()` / `generateAnswer()`; it
- * has no idea Groq exists.
+ * LLM generation via Groq — the assistant's FALLBACK provider.
+ *
+ * One interchangeable provider adapter behind the `llmProvider.ts` seam.
+ * Gemini (`geminiClient.ts`) is the primary; `llmFallback.ts` calls this one
+ * only when Gemini fails, is unconfigured, times out, or returns an error.
+ * This file's Groq logic is unchanged from when it was the sole provider —
+ * it was demoted, not replaced, so the assistant keeps working whenever
+ * Gemini does not. `assistantService.ts` imports `llmProvider.ts`, never this
+ * file, and has no idea either provider exists.
  *
  * This adapter carries no assistant policy of its own: the system prompt
  * (which contains the component-scope / relevance rules) is passed in by
- * the caller. Replacing Groq means writing another file shaped like this
- * one — the scope behaviour comes along unchanged because it lives in
+ * the caller. Adding another provider means writing another file shaped like
+ * this one — the scope behaviour comes along unchanged because it lives in
  * `assistantPrompt.ts`, not here.
  *
  * API details (endpoint, auth, request/response shape, model id) were
@@ -33,40 +37,11 @@
 import { z } from "zod";
 
 import { settings } from "../config/env.js";
+import type { ConversationTurn } from "./llmProvider.js";
 
 const GROQ_CHAT_COMPLETIONS_URL = "https://api.groq.com/openai/v1/chat/completions";
 const GROQ_TIMEOUT_MS = 15_000;
 const MAX_COMPLETION_TOKENS = 700;
-
-/**
- * One prior turn of the conversation. Only `user` and `assistant` exist —
- * the system prompt is assembled server-side and is never client-supplied.
- */
-export interface ConversationTurn {
-  role: "user" | "assistant";
-  content: string;
-}
-
-/** The shape every LLM provider adapter must expose. */
-export interface LlmProvider {
-  isConfigured(): boolean;
-  generateAnswer(
-    systemPrompt: string,
-    userPrompt: string,
-    history?: readonly ConversationTurn[],
-  ): Promise<string>;
-  /**
-   * Same inputs as `generateAnswer`, but yields the answer in fragments as
-   * the model produces them. Throws (before the first yield) on setup
-   * failure; may also throw mid-iteration if the connection drops. Callers
-   * treat any throw the same way they treat a `generateAnswer` rejection.
-   */
-  generateAnswerStream(
-    systemPrompt: string,
-    userPrompt: string,
-    history?: readonly ConversationTurn[],
-  ): AsyncGenerator<string>;
-}
 
 /**
  * Assembles the Groq `messages` array.

@@ -55,6 +55,18 @@ export interface ApiComponent {
   id: string;
   scan_id: string | null;
   type: ComponentType;
+  /**
+   * The detector's own name for the component — "network switch",
+   * "potentiometer", "ic". Null for components detected before the backend
+   * stored it, so always render it as `label ?? type` (see
+   * `componentIdentity` below), never on its own.
+   */
+  label: string | null;
+  /**
+   * The MARKING printed on the part: part number, brand, value — "74HC83",
+   * "CISCO SG300-52 …". This is evidence about the component, NOT its
+   * identity, and must never be displayed in place of `label`/`type`.
+   */
   name: string | null;
   confidence: number;
   condition: ComponentCondition;
@@ -66,6 +78,19 @@ export interface ApiComponent {
   status: ComponentStatus;
   created_at: string;
   test_results: ApiTestResult[];
+}
+
+/**
+ * What a component IS, for display — its detected label, falling back to the
+ * normalised type when the label predates the field or was never set.
+ *
+ * The single rule, shared by every screen, so no view can drift back to
+ * showing the printed marking (`name`) as the component's identity. `name`
+ * belongs next to it as markings, never instead of it.
+ */
+export function componentIdentity(component: Pick<ApiComponent, "label" | "type">): string {
+  const label = component.label?.trim();
+  return label && label.length > 0 ? label : component.type;
 }
 
 export interface ApiScan {

@@ -28,6 +28,9 @@ import { newId } from "../utils/ids.js";
 export interface ComponentInput {
   scanId: string | null;
   type: ComponentType;
+  /** The detector's verbatim label (see `Component.label`); the display identity. */
+  label: string | null;
+  /** The marking printed on the part (see `Component.name`); never the identity. */
   name: string | null;
   confidence: number;
   condition: ComponentCondition;
@@ -60,7 +63,7 @@ export async function createComponent(
     const result = await r.run<{ c: Node }>(
       `MATCH (owner:User {id: $ownerId})
        CREATE (owner)-[:OWNS]->(c:Component {
-         id: $id, type: $type, name: $name, confidence: $confidence,
+         id: $id, type: $type, label: $label, name: $name, confidence: $confidence,
          condition: $condition, salvagePriority: $salvagePriority,
          x1: $x1, y1: $y1, x2: $x2, y2: $y2,
          status: "not_tested", createdAt: datetime()
@@ -98,7 +101,7 @@ export async function createDetectionBatch(
       `MATCH (owner:User {id: $ownerId})-[:OWNS]->(s:Scan {id: $scanId})
        UNWIND $detections AS d
        CREATE (owner)-[:OWNS]->(c:Component {
-         id: d.id, type: d.type, name: d.name, confidence: d.confidence,
+         id: d.id, type: d.type, label: d.label, name: d.name, confidence: d.confidence,
          condition: d.condition, salvagePriority: d.salvagePriority,
          x1: d.x1, y1: d.y1, x2: d.x2, y2: d.y2,
          status: "not_tested", createdAt: datetime()
@@ -194,7 +197,7 @@ export async function updateComponent(
   return writeQuery(runner, async (r) => {
     const result = await r.run<{ c: Node; scanId: string | null; testResults: Node[] }>(
       `MATCH (owner:User {id: $ownerId})-[:OWNS]->(c:Component {id: $id})
-       SET c.type = $type, c.name = $name, c.confidence = $confidence,
+       SET c.type = $type, c.label = $label, c.name = $name, c.confidence = $confidence,
            c.condition = $condition, c.salvagePriority = $salvagePriority,
            c.x1 = $x1, c.y1 = $y1, c.x2 = $x2, c.y2 = $y2
        WITH c, owner

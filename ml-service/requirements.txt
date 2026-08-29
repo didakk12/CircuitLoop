@@ -19,7 +19,7 @@ neo4j>=6.0                   # RAG corpus store + vector similarity search (repl
 numpy>=2.0
 
 pydantic>=2.9
+httpx>=0.27                  # Gemini vision API calls (gemini_detection.py); also used by FastAPI's TestClient
 
 # --- Testing (Phase 7) -----------------------------------------------------
 pytest>=8.0
-httpx>=0.27                  # required by FastAPI's TestClient

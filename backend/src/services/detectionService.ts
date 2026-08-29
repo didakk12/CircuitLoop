@@ -4,11 +4,19 @@
  *   -> persist via the EXISTING componentService/componentRepository (reused
  *   verbatim, no second Neo4j write path) -> ComponentDetail[]
  *
+ * Unchanged by the move to Gemini: ml-service now serves `/detect` from
+ * Gemini first and from the combined custom-YOLO11s + HF-YOLOv8s fallback
+ * stage only when Gemini fails, but the response shape is identical either
+ * way, so everything below works the same for both. The only adjustment was
+ * to the class-name table — every label any of the three models can emit must
+ * map, since all three now reach this code.
+ *
  * Per ML_SERVICE_INTEGRATION_PLAN.md §7/§9 Phase 4 and the component-domain
- * extension: the class-name -> ComponentType mapping is now lossless for
- * every class the verified model actually produces. `unknown` is reserved
- * for a genuinely unrecognized label (e.g. a future model version), never
- * used for any of the 8 known classes.
+ * extension: the mapping is lossless for every class the models actually
+ * produce. `unknown` is reserved for a genuinely unrecognized label (e.g. a
+ * future model version) and for real components this schema has no
+ * `ComponentType` for yet — never as a catch-all for a label that does have
+ * an equivalent.
  */
 
 import { mlServiceClient } from "./mlServiceClient.js";
@@ -40,16 +48,15 @@ export const YOLO_CLASS_TO_COMPONENT_TYPE: Readonly<Record<string, ComponentType
 };
 
 /**
- * Class-name mapping for the second, complementary detector — the pretrained
- * YOLOv8s PCB model (https://huggingface.co/Arshia82sbn/pcb-yolov8s-detection),
- * which emits 21 classes against our 13 `ComponentType` values.
+ * Class-name mapping for the complementary pretrained YOLOv8s PCB model
+ * (https://huggingface.co/Arshia82sbn/pcb-yolov8s-detection), which emits 21
+ * classes against our 13 `ComponentType` values.
  *
- * Purely additive and currently UNUSED by the detection flow: `/detect` still
- * serves the primary model alone, and the second model is reachable only via
- * the ml-service `/detect/compare` benchmarking endpoint. This table exists so
- * the mapping is decided and reviewable *before* any decision about combining
- * the two models — mapping the model's vocabulary onto ours, rather than
- * altering the model.
+ * No longer unused: this model is now half of ml-service's combined fallback
+ * detection stage, so its labels genuinely reach `detectAndPersist` whenever
+ * Gemini is unavailable. That is why `CLASS_NAME_TO_COMPONENT_TYPE` below
+ * merges this table in rather than consulting the primary one alone — an
+ * unmapped `diode` would otherwise be silently recorded as `unknown`.
  *
  * Eleven classes have exact internal equivalents. The remaining ten are real
  * PCB components we simply have no `ComponentType` for yet; they map to
@@ -84,16 +91,86 @@ export const HF_YOLO_CLASS_TO_COMPONENT_TYPE: Readonly<Record<string, ComponentT
   transformer: "unknown",
 };
 
-/** `unknown` is the fallback ONLY for a label outside the verified set above — never for one of the 8 known classes. */
-function mapClassNameToComponentType(className: string): ComponentType {
-  return YOLO_CLASS_TO_COMPONENT_TYPE[className] ?? "unknown";
+/**
+ * Class names Gemini can emit that the two YOLO tables do not already cover.
+ *
+ * Gemini's label vocabulary is deliberately OPEN — its response schema types
+ * `label` as a plain string with no enum, so it can name any component it
+ * recognises (`potentiometer`, `mosfet`, `crystal`, ...). This table therefore
+ * cannot be exhaustive by construction, and is not meant to be: it names the
+ * labels with an exact `ComponentType` that the two YOLO tables do not already
+ * cover — types the local models were never trained to see, the coverage the
+ * primary detector adds.
+ *
+ * Anything else Gemini names falls through to the `unknown` ComponentType in
+ * `mapClassNameToComponentType` below. That is a limitation of THIS mapping
+ * and of the Neo4j schema behind it, not of the detector: the raw label Gemini
+ * produced is preserved verbatim in `MlDetection.class_name` and is never
+ * rewritten upstream. Widening `ComponentType` to store those types is a
+ * schema decision, deliberately not taken here.
+ */
+export const GEMINI_CLASS_TO_COMPONENT_TYPE: Readonly<Record<string, ComponentType>> = {
+  led: "led",
+  diode: "diode",
+  transistor: "transistor",
+  microcontroller: "microcontroller",
+  // A whole network switch normalises to the `switch` type so it stays
+  // queryable in the existing union. The narrowing is lossy — a rack switch is
+  // not a PCB toggle switch — which is exactly why `Component.label` keeps
+  // "network switch" verbatim and is what the UI displays.
+  "network switch": "switch",
+  // Gemini emits this deliberately, meaning "a component I can see but cannot
+  // name" — a real answer, not an unrecognised label. Listed explicitly so it
+  // maps by intent rather than by falling through to the default below.
+  unknown: "unknown",
+};
+
+/**
+ * The single lookup used at runtime, covering every label any of the three
+ * detectors can produce.
+ *
+ * Merging is safe and lossless: the three tables agree on every key they
+ * share (`capacitor` -> `capacitor` in all of them), so no entry can shadow a
+ * different meaning. The order below is the precedence — the project's own
+ * model first — which matters only if that invariant is ever broken.
+ */
+export const CLASS_NAME_TO_COMPONENT_TYPE: Readonly<Record<string, ComponentType>> = {
+  ...HF_YOLO_CLASS_TO_COMPONENT_TYPE,
+  ...GEMINI_CLASS_TO_COMPONENT_TYPE,
+  ...YOLO_CLASS_TO_COMPONENT_TYPE,
+};
+
+/**
+ * `unknown` is the fallback for a label outside every table above — never for
+ * a class one of the YOLO models is known to emit. Since Gemini's vocabulary is
+ * open, an open-vocabulary label ("potentiometer", "mosfet") legitimately lands
+ * here: it becomes the `unknown` *ComponentType* while the detection's own
+ * `class_name` keeps the name Gemini gave it.
+ *
+ * Exported for the mapping tests, which pin exactly that behaviour.
+ */
+export function mapClassNameToComponentType(className: string): ComponentType {
+  return CLASS_NAME_TO_COMPONENT_TYPE[className.trim().toLowerCase()] ?? "unknown";
 }
 
+/**
+ * One detection as a persistable component.
+ *
+ * The three identity-ish fields are deliberately distinct and must stay that
+ * way — collapsing them is what previously made a Cisco switch display as
+ * "CISCO SG300-52 …":
+ *
+ *   type  — the detector's label narrowed to `ComponentType`, for querying.
+ *   label — the detector's label verbatim, the display identity.
+ *   name  — the marking printed on the part, evidence only.
+ */
 function toComponentInput(scanId: string, detection: MlDetection): ComponentInput {
   const ocrText = detection.text.trim();
+  const rawLabel = detection.class_name.trim();
   return {
     scanId,
     type: mapClassNameToComponentType(detection.class_name),
+    label: rawLabel.length > 0 ? rawLabel : null,
     name: ocrText.length > 0 ? ocrText : null,
     confidence: detection.confidence,
     condition: "unknown",

@@ -29,6 +29,12 @@ class DetectionModel(BaseModel):
 
 class DetectResponse(BaseModel):
     detections: list[DetectionModel]
+    # Which stage served this response: "gemini" (primary) or "yolo_fallback"
+    # (the combined custom-YOLO11s + HF-YOLOv8s stage). Optional and additive,
+    # so the TS client's non-strict Zod schema accepts responses with or
+    # without it; it exists so a scan can be attributed to a stage in logs and
+    # during debugging, and nothing branches on it.
+    source: str | None = None
 
 
 class ModelDetectionsModel(BaseModel):
@@ -85,7 +91,15 @@ class SearchResponse(BaseModel):
 
 class HealthResponse(BaseModel):
     status: str
+    # True when SOME detection stage can serve a request — Gemini, or either
+    # YOLO model. Its meaning widened when detection gained a second stage;
+    # the per-stage flags below say which.
     model_loaded: bool
+    # Per-stage readiness. Additive and defaulted, so the TS client's existing
+    # non-strict schema is unaffected.
+    gemini_configured: bool = False
+    custom_model_loaded: bool = False
+    hf_model_loaded: bool = False
     # True when the embedding model is loaded AND the Neo4j vector index is
     # reachable and ONLINE. The field name predates the Neo4j migration and is
     # kept so the TS client's contract is unchanged; only what backs it moved.

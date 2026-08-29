@@ -15,6 +15,7 @@ const { reachable } = await connectForTests();
 const baseInput: ComponentInput = {
   scanId: null,
   type: "resistor",
+  label: "resistor",
   name: "R1",
   confidence: 0.9,
   condition: "unknown",

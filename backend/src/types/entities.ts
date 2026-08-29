@@ -107,6 +107,32 @@ export interface Scan {
 export interface Component {
   id: string;
   type: ComponentType;
+  /**
+   * The detector's own name for this component, verbatim — `"network switch"`,
+   * `"potentiometer"`, `"crystal"`, `"ic"`.
+   *
+   * `type` above is this label narrowed to the closed `ComponentType` union so
+   * it stays queryable; that narrowing is lossy (`"network switch"` becomes
+   * `"switch"`, `"potentiometer"` becomes `"unknown"`), and this field is where
+   * the unnarrowed answer survives. It is the component's DISPLAY IDENTITY:
+   * clients show `label ?? type`, never `name`.
+   *
+   * Null for components created by hand through the API without one, and for
+   * every component detected before this field existed — hence `?? type`.
+   *
+   * Emphatically NOT the printed marking. What is written on the part lives in
+   * `name`; confusing the two is the bug this field was added to end.
+   */
+  label: string | null;
+  /**
+   * The marking read off the component — a part number, brand, or printed
+   * value (`"74HC83"`, `"CISCO SG300-52 …"`, `"220 16V"`), or null when the
+   * part carries none.
+   *
+   * Evidence about the component, not its identity: a part is not a "CISCO",
+   * it is a network switch that says CISCO on it. Never render this in place
+   * of `label`/`type`.
+   */
   name: string | null;
   confidence: number;
   condition: ComponentCondition;

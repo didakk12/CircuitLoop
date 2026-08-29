@@ -11,6 +11,7 @@ const detectionBoundingBoxSchema = z.object({
 
 const detectionCreateSchema = z.object({
   type: componentTypeSchema,
+  label: z.string().nullish(),
   name: z.string().nullish(),
   confidence: z.number().min(0).max(1),
   bbox: detectionBoundingBoxSchema,
