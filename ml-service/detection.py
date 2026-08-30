@@ -149,6 +149,10 @@ class DetectionService:
         # Tags every Detection this instance produces, so results from two
         # concurrently-loaded models stay independently attributable.
         self._source = source
+        # Set the first time `ensure_loaded()` runs, whether or not it
+        # succeeded — this is what stops a broken/missing weights file from
+        # being retried (and re-logged) on every single fallback request.
+        self._load_attempted = False
 
     @property
     def source(self) -> str:
@@ -164,6 +168,30 @@ class DetectionService:
             raise FileNotFoundError(f"YOLO model weights not found at {self._model_path}")
         self._model = YOLO(str(self._model_path))
         logger.info("YOLO model loaded from %s (classes: %s)", self._model_path, self._model.names)
+
+    def ensure_loaded(self) -> None:
+        """Loads the model on first use rather than at startup.
+
+        The fallback stage is only ever reached once Gemini has already
+        failed, so paying this model's load cost (disk I/O + RAM) at process
+        startup — before it's known whether it will ever be needed — is pure
+        waste on a memory-constrained deployment. A failed attempt sets
+        `_load_attempted` so it is logged once and never retried per request
+        (matching the eager path's original "log and move on" behavior),
+        rather than re-attempting a broken/missing weights file on every
+        fallback-triggered request.
+        """
+        if self._model is not None or self._load_attempted:
+            return
+        self._load_attempted = True
+        try:
+            self.load()
+        except Exception as error:  # noqa: BLE001 — a lazy load failure must not crash the request
+            logger.warning(
+                "Lazy load of the %s model failed (%s); it will be skipped in the fallback stage.",
+                self._source,
+                error,
+            )
 
     @property
     def is_loaded(self) -> bool:

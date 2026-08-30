@@ -146,41 +146,27 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         gemini_detection_service.load()
 
     # --- Stage 2: the combined YOLO fallback -----------------------------
-    # The project's own trained model. It no longer serves /detect directly,
-    # but it is still loaded on every startup, still exercised by the tests,
-    # and is half of the fallback stage.
-    try:
-        logger.info("Loading custom YOLO11s detection model...")
-        detection_service.load()
-        logger.info("Custom detection model ready. Classes: %s", detection_service.class_names)
-    except Exception as error:  # noqa: BLE001 — must not block Gemini from serving
-        logger.warning(
-            "Custom YOLO11s model unavailable (%s); it will be skipped in the fallback stage.",
-            error,
-        )
+    # The project's own trained model, and the complementary pretrained HF
+    # YOLOv8s model — together, the fallback stage reached only when Gemini
+    # fails. Deliberately NOT loaded here: on a memory-constrained deployment,
+    # paying to load two YOLO checkpoints at startup — before it's even known
+    # whether the fallback stage will ever be needed — is pure waste when
+    # Gemini is configured and serving every request. Each service instead
+    # loads itself lazily on first use via `ensure_loaded()`, called from the
+    # `/detect` and `/detect/compare` handlers below.
+    hf_detection_service: DetectionService = DetectionService(model_path=HF_MODEL_PATH, source=SOURCE_HF)
 
-    # The complementary pretrained HF YOLOv8s model — the other half of the
-    # fallback stage, and still available for side-by-side benchmarking via
-    # /detect/compare.
-    hf_detection_service: DetectionService | None = DetectionService(
-        model_path=HF_MODEL_PATH, source=SOURCE_HF
-    )
-    try:
-        logger.info("Loading complementary HF YOLOv8s detection model...")
-        hf_detection_service.load()
-        logger.info("HF detection model ready. Classes: %s", hf_detection_service.class_names)
-    except Exception as error:  # noqa: BLE001 — optional model must never block startup
+    if gemini_detection_service is None:
+        # Not fatal — /search still works, and the fallback stage may well
+        # succeed once it's actually tried — but with Gemini unconfigured,
+        # every /detect request depends on a lazy load that hasn't been
+        # attempted yet, so say so now rather than leaving it a silent
+        # surprise on the first upload.
         logger.warning(
-            "Complementary HF model unavailable (%s); the fallback stage will run on the "
-            "custom model alone.",
-            error,
+            "Gemini is not configured: every /detect request will lazily load the YOLO "
+            "fallback stage on first use. If neither local model is available, /detect "
+            "will return 503."
         )
-        hf_detection_service = None
-
-    if gemini_detection_service is None and not detection_service.is_loaded and hf_detection_service is None:
-        # Not fatal — /search still works — but /detect cannot serve anything,
-        # so say so loudly at startup rather than only on the first upload.
-        logger.error("No detection model is available: /detect will return 503 for every request.")
 
     logger.info("Connecting to Neo4j and loading the RAG embedding model...")
     search_service.load()
@@ -336,6 +322,13 @@ async def detect(
                 exc,
             )
 
+    # Reached only when Gemini failed (or was never configured) — this is the
+    # first point either YOLO model is actually needed, so it's the first
+    # point either one is loaded.
+    state.detection_service.ensure_loaded()
+    if state.hf_detection_service is not None:
+        state.hf_detection_service.ensure_loaded()
+
     try:
         detections = run_fallback_detection(
             [state.detection_service, state.hf_detection_service],
@@ -389,6 +382,13 @@ async def detect_compare(
     image_bytes = await _read_validated_image(image)
 
     state = _state(request)
+    # This endpoint's whole purpose is comparing every model side by side, so
+    # unlike /detect it loads both YOLO models unconditionally (not just on a
+    # Gemini failure) — an explicit call to /detect/compare is itself the
+    # signal that they're wanted.
+    state.detection_service.ensure_loaded()
+    if state.hf_detection_service is not None:
+        state.hf_detection_service.ensure_loaded()
     services = [
         service
         for service in (

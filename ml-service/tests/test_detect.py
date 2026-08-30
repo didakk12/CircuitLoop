@@ -20,6 +20,19 @@ import app as app_module
 from detection import BoundingBox, Detection, DetectionService
 from gemini_detection import SOURCE_GEMINI, GeminiUnavailableError
 
+class _UnloadableDetectionService(DetectionService):
+    """A checkpoint that can never be read, without touching the real files.
+
+    Needed because `DetectionService.ensure_loaded()` now lazily loads on
+    first use: a plain fresh `DetectionService()` pointed at the real default
+    model path would succeed the moment a fallback request touched it, which
+    defeats a test that wants to simulate "no model available at all".
+    """
+
+    def load(self) -> None:
+        raise FileNotFoundError(f"YOLO model weights not found at {self.model_path}")
+
+
 KNOWN_CLASSES = {"battery", "buzzer", "capacitor", "display", "ic", "relay", "resistor", "switch"}
 
 HF_CLASSES = {
@@ -275,7 +288,7 @@ def test_detect_returns_503_only_when_every_stage_is_unavailable(
     without tearing down the shared session-scoped app (monkeypatch reverts
     automatically after this test)."""
     monkeypatch.setattr(client.app.state, "gemini_detection_service", None)
-    monkeypatch.setattr(client.app.state, "detection_service", DetectionService())  # unloaded
+    monkeypatch.setattr(client.app.state, "detection_service", _UnloadableDetectionService())
     monkeypatch.setattr(client.app.state, "hf_detection_service", None)
 
     response = client.post("/detect", files={"image": ("hero.png", sample_image_bytes, "image/png")})

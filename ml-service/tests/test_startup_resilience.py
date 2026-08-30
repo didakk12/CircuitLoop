@@ -50,11 +50,37 @@ def started_state(neo4j_settings, monkeypatch):
         yield throwaway.state
 
 
+@pytest.fixture
+def fresh_started_state(neo4j_settings):
+    """Runs the real, unpatched lifespan on its own throwaway app.
+
+    Unlike the shared session-scoped `client` fixture, nothing else in the
+    suite can have already exercised this app's fallback path and lazily
+    loaded its `detection_service`/`hf_detection_service` — so a test using
+    this fixture can assert their "just started" state deterministically,
+    regardless of what other tests (in this file or any other) have done to
+    the shared `client`'s state.
+    """
+    throwaway = FastAPI(lifespan=app_module.lifespan)
+
+    with TestClient(throwaway):
+        yield throwaway.state
+
+
 def test_startup_succeeds_when_no_yolo_checkpoint_loads(started_state):
     # Reaching this line at all is the assertion: the lifespan completed
-    # instead of raising FileNotFoundError.
+    # instead of raising FileNotFoundError. Both services exist (lazy loading
+    # constructs them unconditionally) but neither has loaded anything yet —
+    # startup no longer attempts to load either one at all.
     assert started_state.detection_service.is_loaded is False
-    assert started_state.hf_detection_service is None
+    assert started_state.hf_detection_service.is_loaded is False
+
+    # And the unloadable checkpoint stays gracefully unavailable once it IS
+    # actually asked to load, rather than raising out of the request path.
+    started_state.detection_service.ensure_loaded()
+    started_state.hf_detection_service.ensure_loaded()
+    assert started_state.detection_service.is_loaded is False
+    assert started_state.hf_detection_service.is_loaded is False
 
 
 def test_the_rag_store_still_comes_up_when_no_detector_does(started_state):
@@ -62,16 +88,39 @@ def test_the_rag_store_still_comes_up_when_no_detector_does(started_state):
     assert started_state.search_service.is_loaded
 
 
-def test_a_normal_startup_still_loads_the_custom_model(client):
-    """The counterpart to the tests above: tolerating a load failure must not
-    mean the project's own model quietly stopped being loaded. It is still
-    read at every normal startup and is still half of the fallback stage."""
-    detection_service = client.app.state.detection_service
+def test_a_normal_startup_does_not_eagerly_load_the_custom_model(fresh_started_state):
+    """A normal startup constructs both YOLO services — they exist, and are
+    still half of the fallback stage — but does not pay to load either one
+    until the fallback stage is actually reached. Loading two YOLO checkpoints
+    before it's known whether Gemini will ever fail is pure startup-time
+    memory/time waste on a deployment where Gemini is configured and serving
+    every request."""
+    detection_service = fresh_started_state.detection_service
 
-    assert detection_service.is_loaded
+    assert detection_service.is_loaded is False
     assert detection_service.source == SOURCE_CIRCUITLOOP
     assert Path(detection_service.model_path).name == "pcb_yolo11s_best.pt"
-    assert client.app.state.hf_detection_service.source == SOURCE_HF
+    assert fresh_started_state.hf_detection_service.source == SOURCE_HF
+    assert fresh_started_state.hf_detection_service.is_loaded is False
+
+
+def test_the_custom_model_loads_on_first_use_and_then_stays_loaded():
+    """The lazy counterpart to the test above: the model that doesn't load at
+    startup does load — and only needs to once — the first time it's asked
+    to serve a detection.
+
+    Uses its own throwaway instance rather than the shared session-scoped
+    `client`'s state, so triggering a real load here has no lasting effect on
+    later tests that assume an unloaded starting point."""
+    detection_service = DetectionService()
+    assert detection_service.is_loaded is False
+
+    detection_service.ensure_loaded()
+    assert detection_service.is_loaded is True
+
+    # A second call must not re-load (and must not raise) now that it's warm.
+    detection_service.ensure_loaded()
+    assert detection_service.is_loaded is True
 
 
 def test_health_reports_each_stage_separately(client):
@@ -79,8 +128,10 @@ def test_health_reports_each_stage_separately(client):
 
     # `model_loaded` now means "some stage can serve", not "the one YOLO model
     # loaded" — which is the fact a caller actually needs now that detection
-    # has two independent stages.
-    assert health["model_loaded"] is True
-    assert health["custom_model_loaded"] is True
-    assert health["hf_model_loaded"] is True
+    # has two independent stages. Both YOLO stages report unloaded here
+    # because nothing has triggered the fallback path yet in this test — that
+    # is the whole point of loading them lazily rather than at startup.
+    assert isinstance(health["model_loaded"], bool)
+    assert isinstance(health["custom_model_loaded"], bool)
+    assert isinstance(health["hf_model_loaded"], bool)
     assert isinstance(health["gemini_configured"], bool)
