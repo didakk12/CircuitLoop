@@ -6,6 +6,7 @@ import authRouter from "./auth.js";
 import componentsRouter from "./components.js";
 import dashboardRouter from "./dashboard.js";
 import detectionsRouter from "./detections.js";
+import hardwareRouter from "./hardware.js";
 import healthRouter from "./health.js";
 import telemetryRouter from "./telemetry.js";
 import { requireAuth } from "../middleware/auth.js";
@@ -35,6 +36,7 @@ router.use("/components", testResultsRouter);
 router.use("/detections", detectionsRouter);
 router.use("/dashboard", dashboardRouter);
 router.use("/assistant", assistantRouter);
+router.use("/hardware", hardwareRouter);
 
 
 export default router;

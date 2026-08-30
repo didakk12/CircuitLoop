@@ -16,6 +16,7 @@ import { pathToFileURL } from "node:url";
 import { settings } from "./config/env.js";
 import { closeDriver, getDriver, initDriver } from "./db/neo4jDriver.js";
 import { ensureConstraintsAndIndexes, ensureDataMigrations } from "./db/schema.js";
+import * as hardwareService from "./services/hardwareService.js";
 import { ensureUploadDir } from "./services/imageStorageService.js";
 import { errorHandler, notFoundHandler } from "./middleware/errorHandler.js";
 import apiRouter from "./routes/index.js";
@@ -70,6 +71,16 @@ async function main(): Promise<void> {
     log("INFO", `CircuitLoop backend listening on port ${settings.port}`);
   });
 
+  // Fire-and-forget, and deliberately *after* the server is listening: the
+  // ESP32 gateway is an optional peripheral, so looking for it must never
+  // delay the API becoming available, and never fail startup if it isn't
+  // there. `start()` catches everything internally and resolves to a
+  // `disabled`/`scanning` state; the `.catch` here is the belt-and-braces
+  // guarantee that even a bug inside it can't take the process down.
+  void hardwareService.start().catch((error: unknown) => {
+    log("WARN", `Hardware gateway did not start: ${error instanceof Error ? error.message : String(error)}`);
+  });
+
   let shuttingDown = false;
   const shutdown = (signal: NodeJS.Signals): void => {
     if (shuttingDown) {
@@ -77,6 +88,14 @@ async function main(): Promise<void> {
     }
     shuttingDown = true;
     log("INFO", `Received ${signal}, shutting down gracefully...`);
+
+    // Released before the Neo4j driver closes, because tearing the link down
+    // resolves any in-flight command — a write that still needs the driver.
+    // A serial port left open would also survive the process on some
+    // platforms and block the next start with "port busy".
+    void hardwareService.stop().catch((error: unknown) => {
+      log("WARN", `Error while stopping the hardware gateway: ${String(error)}`);
+    });
 
     server.close(() => {
       closeDriver()
