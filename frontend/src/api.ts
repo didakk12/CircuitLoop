@@ -434,6 +434,112 @@ export async function getCurrentUser(): Promise<ApiUser | null> {
     throw error;
   }
 }
+// --- Marketplace ----------------------------------------------------------
+
+/**
+ * Listing lifecycle, mirroring the backend's `MarketplaceListingStatus`.
+ *
+ * `ready_for_manual_post` is NOT published: the default `manual_assist`
+ * provider posts nothing and just hands back a create-listing link, so the
+ * listing stays fully editable. Only `published` freezes it.
+ */
+export type MarketplaceListingStatus = "draft" | "ready_for_manual_post" | "published" | "failed";
+
+export interface ApiMarketplaceListing {
+  id: string;
+  component_id: string;
+  /** Registry name of the provider this listing targets, e.g. "manual_assist". */
+  provider: string;
+  status: MarketplaceListingStatus;
+  title: string;
+  description: string;
+  category: string;
+  price_estimate: number;
+  currency: string;
+  /** Points at the ownership-checked `/api/scans/:id/image` endpoint, or null. Stable across component re-parenting. */
+  image_url: string | null;
+  /** The upstream listing, or the link to finish posting by hand. Null until publish is attempted. */
+  external_url: string | null;
+  external_listing_id: string | null;
+  /** Why the last publish attempt failed. Null unless `status` is "failed". */
+  error_message: string | null;
+  created_at: string;
+  updated_at: string;
+  published_at: string | null;
+}
+
+/** Fields a listing owner may edit before it is published. All optional — a patch may change just the price. */
+export interface UpdateMarketplaceListingInput {
+  title?: string;
+  description?: string;
+  category?: string;
+  price_estimate?: number;
+  currency?: string;
+}
+
+/**
+ * POST /api/marketplace/listings — creates a draft for a component, or returns
+ * the component's existing active draft if it already has one.
+ *
+ * The backend answers 201 for a new draft and 200 for a reused one; both are
+ * successes and both resolve here, so callers never have to care. Rejects with
+ * a 404 `ApiError` for a component that isn't the signed-in user's.
+ */
+export function createMarketplaceDraft(componentId: string): Promise<ApiMarketplaceListing> {
+  return request<ApiMarketplaceListing>("/api/marketplace/listings", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ component_id: componentId }),
+  });
+}
+
+/** GET /api/marketplace/listings/:id */
+export function getMarketplaceListing(id: string): Promise<ApiMarketplaceListing> {
+  return request<ApiMarketplaceListing>(`/api/marketplace/listings/${id}`);
+}
+
+/** GET /api/marketplace/listings?component_id=X — the component's full listing history, oldest first. */
+export function listMarketplaceListingsForComponent(componentId: string): Promise<ApiMarketplaceListing[]> {
+  return request<ApiMarketplaceListing[]>(
+    `/api/marketplace/listings?component_id=${encodeURIComponent(componentId)}`,
+  );
+}
+
+/**
+ * PATCH /api/marketplace/listings/:id — partial update; omitted fields keep
+ * their current values.
+ *
+ * Rejects with a 409 `ApiError` once the listing is `published`: at that point
+ * it is a record of what was actually posted, and editing it would make it
+ * describe an item nobody advertised.
+ */
+export function updateMarketplaceListing(
+  id: string,
+  input: UpdateMarketplaceListingInput,
+): Promise<ApiMarketplaceListing> {
+  return request<ApiMarketplaceListing>(`/api/marketplace/listings/${id}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+}
+
+/**
+ * POST /api/marketplace/listings/:id/publish — hands the listing to its
+ * configured provider.
+ *
+ * A provider failure or timeout is NOT a rejection: the backend records it as
+ * `status: "failed"` with `error_message` set and still answers 200, so the
+ * user's draft survives an upstream outage. Check `status` on the resolved
+ * listing rather than relying on catch. Only ownership (404) and transport
+ * failures reject.
+ */
+export function publishMarketplaceListing(id: string): Promise<ApiMarketplaceListing> {
+  return request<ApiMarketplaceListing>(`/api/marketplace/listings/${id}/publish`, {
+    method: "POST",
+  });
+}
+
 // --- Telemetry ------------------------------------------------------------
 
 export interface TelemetryMemory {
