@@ -164,6 +164,18 @@ export interface Command {
   resolvedAt: string | null;
   ackReceived: boolean;
   detail: string | null;
+  /**
+   * The component this command was aimed at, or `null` for a gateway-level
+   * probe that isn't about any single part (the automatic heartbeat/ACK
+   * probe is always `null`).
+   *
+   * Stored denormalized on the node in addition to the
+   * `(:Component)-[:HAS_COMMAND]->(:Command)` edge, so the common
+   * "commands for this component" and "gateway probes only" queries are a
+   * single indexed property lookup rather than a traversal — see the
+   * `command_component_id_index` in `db/schema.ts`.
+   */
+  componentId: string | null;
 }
 
 /** (:MonitoringAgent) node properties (Phase H). */

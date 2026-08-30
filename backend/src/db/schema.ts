@@ -92,6 +92,13 @@ const INDEXES: readonly SchemaStatement[] = [
     cypher: `CREATE INDEX command_status_index IF NOT EXISTS FOR (cmd:${NodeLabel.Command}) ON (cmd.status)`,
   },
   {
+    // Backs both halves of the hardware-ACK read path: "every command for
+    // this component" and "gateway-level probes only" (`componentId IS
+    // NULL`), neither of which the status index above can serve.
+    description: `Index ${NodeLabel.Command}.componentId`,
+    cypher: `CREATE INDEX command_component_id_index IF NOT EXISTS FOR (cmd:${NodeLabel.Command}) ON (cmd.componentId)`,
+  },
+  {
     description: `Index ${NodeLabel.HealthReport}.status`,
     cypher: `CREATE INDEX healthreport_status_index IF NOT EXISTS FOR (h:${NodeLabel.HealthReport}) ON (h.status)`,
   },

@@ -76,6 +76,35 @@ export interface Settings {
   readonly esp32Port: string | undefined;
   readonly esp32Baud: number | undefined;
   readonly esp32AckTimeoutMs: number;
+  /**
+   * Master switch for the automatic hardware-ACK loop
+   * (`services/hardwareService.ts`). `false` parks the state machine in
+   * `disabled` without ever touching a serial port; the rest of the
+   * application is unaffected either way, since every adapter call is
+   * caught internally.
+   */
+  readonly esp32Enabled: boolean;
+  /** How often to re-scan the machine's serial ports while looking for a board. */
+  readonly esp32PollIntervalMs: number;
+  /** How long to wait after a disconnect/timeout/open failure before scanning again. */
+  readonly esp32ReconnectDelayMs: number;
+  /**
+   * The action written on connect, and on every heartbeat re-probe, to prove
+   * the board is alive. A *default*, not a ceiling — `POST /api/hardware/action`
+   * accepts any non-empty action string, so new firmware commands need no
+   * backend change.
+   */
+  readonly esp32DefaultAction: string;
+  /**
+   * USB `VID:PID` pairs (uppercase hex, no `0x`) considered to be a
+   * CircuitLoop gateway during port auto-detection. Defaults cover the
+   * USB-serial bridges ESP32 dev boards ship with — CH340, CP2102, FTDI —
+   * plus Espressif's own native-USB VID. Matching is case-insensitive.
+   *
+   * Ignored entirely when `esp32Port` names an explicit port: an operator who
+   * has said which port to use has already answered this question.
+   */
+  readonly esp32VidPidAllowlist: readonly string[];
   readonly heartbeatStaleAfterS: number;
   /** Origins allowed to call this API from a browser (CORS). Local dev tool per CIRCUIT_LOOP_PLAN.md §"Auth/security" — "CORS is wide open to localhost", not to arbitrary origins. */
   readonly corsOrigins: readonly string[];
@@ -127,6 +156,58 @@ function parseIntOrUndefined(name: string): number | undefined {
 function parseIntOrDefault(name: string, fallback: number): number {
   return parseIntOrUndefined(name) ?? fallback;
 }
+
+/**
+ * Reads a boolean flag. Unset falls back; anything else must be exactly
+ * `true`/`false` (case-insensitive), because the alternative — treating every
+ * unrecognised value as `false` — silently disables a feature for a typo like
+ * `TRUE_` or `yes`, which is a miserable thing to debug.
+ */
+function parseBooleanOrDefault(name: string, fallback: boolean): boolean {
+  const raw = readEnv(name);
+  if (raw === undefined) {
+    return fallback;
+  }
+  const normalized = raw.trim().toLowerCase();
+  if (normalized === "true") {
+    return true;
+  }
+  if (normalized === "false") {
+    return false;
+  }
+  throw new Error(`Environment variable ${name}=${JSON.stringify(raw)} must be "true" or "false".`);
+}
+
+/** Reads a comma-separated list, trimming blanks. Unset (or all-blank) falls back to `fallback`. */
+function parseCsvOrDefault(name: string, fallback: readonly string[]): readonly string[] {
+  const raw = readEnv(name);
+  if (raw === undefined) {
+    return fallback;
+  }
+  const values = raw
+    .split(",")
+    .map((value) => value.trim())
+    .filter((value) => value.length > 0);
+  return values.length > 0 ? values : fallback;
+}
+
+/**
+ * USB `VID:PID` pairs of the USB-serial bridges ESP32 development boards
+ * ship with. Not an exhaustive registry — an unlisted board is added via
+ * `CIRCUITLOOP_ESP32_VID_PID_ALLOWLIST` (or bypassed entirely by naming the
+ * port in `CIRCUITLOOP_ESP32_PORT`), which is why detection failing closed
+ * here is safe rather than a dead end.
+ */
+const DEFAULT_ESP32_VID_PID_ALLOWLIST: readonly string[] = [
+  "1A86:7523", // CH340/CH341
+  "1A86:5523", // CH341 in serial mode
+  "10C4:EA60", // Silicon Labs CP2102/CP2109
+  "0403:6001", // FTDI FT232R
+  "0403:6010", // FTDI FT2232
+  "0403:6014", // FTDI FT232H
+  "0403:6015", // FTDI FT231X
+  "303A:1001", // Espressif native USB CDC (ESP32-S2/S3/C3)
+];
 
 /**
  * Reads a similarity threshold, which is only meaningful as a cosine value in
@@ -213,6 +294,14 @@ export function loadSettings(): Settings {
     esp32Port: readEnv("CIRCUITLOOP_ESP32_PORT"),
     esp32Baud: parseIntOrUndefined("CIRCUITLOOP_ESP32_BAUD"),
     esp32AckTimeoutMs: parseIntOrDefault("CIRCUITLOOP_ESP32_ACK_TIMEOUT_MS", 5000),
+    esp32Enabled: parseBooleanOrDefault("CIRCUITLOOP_ESP32_ENABLED", true),
+    esp32PollIntervalMs: parseIntOrDefault("CIRCUITLOOP_ESP32_POLL_INTERVAL_MS", 3000),
+    esp32ReconnectDelayMs: parseIntOrDefault("CIRCUITLOOP_ESP32_RECONNECT_DELAY_MS", 5000),
+    esp32DefaultAction: readEnv("CIRCUITLOOP_ESP32_DEFAULT_ACTION") ?? "I2C_PROBE:0x27",
+    esp32VidPidAllowlist: parseCsvOrDefault(
+      "CIRCUITLOOP_ESP32_VID_PID_ALLOWLIST",
+      DEFAULT_ESP32_VID_PID_ALLOWLIST,
+    ),
     heartbeatStaleAfterS: parseIntOrDefault("CIRCUITLOOP_HEARTBEAT_STALE_AFTER_S", 30),
     // Defaults cover Vite's dev server under both hostnames a browser may use
     // (localhost and 127.0.0.1 are different CORS origins even though they
