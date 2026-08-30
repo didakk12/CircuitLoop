@@ -7,6 +7,7 @@ import componentsRouter from "./components.js";
 import dashboardRouter from "./dashboard.js";
 import detectionsRouter from "./detections.js";
 import healthRouter from "./health.js";
+import marketplaceRouter from "./marketplace.js";
 import telemetryRouter from "./telemetry.js";
 import { requireAuth } from "../middleware/auth.js";
 import scansRouter from "./scans.js";
@@ -35,6 +36,7 @@ router.use("/components", testResultsRouter);
 router.use("/detections", detectionsRouter);
 router.use("/dashboard", dashboardRouter);
 router.use("/assistant", assistantRouter);
+router.use("/marketplace", marketplaceRouter);
 
 
 export default router;
