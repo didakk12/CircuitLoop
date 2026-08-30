@@ -3,7 +3,7 @@
 # Collects Windows memory/process telemetry and sends it to the backend.
 # ==============================================================================
 
-$BackendUrl = "http://localhost:8000/api/v1/telemetry"
+$BackendUrl = "https://backend-d9y6.onrender.com/api/v1/telemetry"
 $AgentId = $env:COMPUTERNAME
 $IntervalSec = 10
 
