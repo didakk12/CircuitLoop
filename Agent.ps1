@@ -14,16 +14,33 @@ function Get-SystemMetrics {
     # --------------------------------------------------------------------------
 
     $OS = Get-CimInstance Win32_OperatingSystem
-    $Perf = Get-CimInstance Win32_PerfFormattedData_PerfOS_Memory
+
+    # Win32_PerfFormattedData_PerfOS_Memory isn't registered on every Windows
+    # install (a stale/corrupt performance-counter registration) -- when it
+    # fails, fall back to zeros instead of letting $null reach the backend,
+    # which rejects hard_faults_per_sec/standby_mb/modified_mb as anything
+    # other than a real number.
+    try {
+        $Perf = Get-CimInstance Win32_PerfFormattedData_PerfOS_Memory -ErrorAction Stop
+    } catch {
+        $Perf = $null
+    }
 
     $TotalMB = [math]::Round($OS.TotalVisibleMemorySize / 1KB, 2)
     $FreeMB = [math]::Round($OS.FreePhysicalMemory / 1KB, 2)
     $UsedMB = [math]::Round($TotalMB - $FreeMB, 2)
     $UsedPct = [math]::Round(($UsedMB / $TotalMB) * 100, 2)
 
-    $StandbyMB = [math]::Round($Perf.StandbyCacheBytes / 1MB, 2)
-    $ModMB = [math]::Round($Perf.ModifiedPageListBytes / 1MB, 2)
-    $HardFaults = $Perf.PageFaultsPerSec
+    if ($null -ne $Perf) {
+        $StandbyMB = [math]::Round($Perf.StandbyCacheBytes / 1MB, 2)
+        $ModMB = [math]::Round($Perf.ModifiedPageListBytes / 1MB, 2)
+        $HardFaults = $Perf.PageFaultsPerSec
+    } else {
+        $StandbyMB = 0
+        $ModMB = 0
+        $HardFaults = 0
+    }
+    if ($null -eq $HardFaults) { $HardFaults = 0 }
 
     # --------------------------------------------------------------------------
     # Top 10 Processes by RAM Usage
