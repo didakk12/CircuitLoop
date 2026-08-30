@@ -68,6 +68,10 @@ const CONSTRAINTS: readonly SchemaStatement[] = [
     description: `Unique ${NodeLabel.DatasheetChunk}.id`,
     cypher: `CREATE CONSTRAINT datasheetchunk_id_unique IF NOT EXISTS FOR (d:${NodeLabel.DatasheetChunk}) REQUIRE d.id IS UNIQUE`,
   },
+  {
+    description: `Unique ${NodeLabel.MarketplaceListing}.id`,
+    cypher: `CREATE CONSTRAINT marketplacelisting_id_unique IF NOT EXISTS FOR (m:${NodeLabel.MarketplaceListing}) REQUIRE m.id IS UNIQUE`,
+  },
 ];
 
 const INDEXES: readonly SchemaStatement[] = [
@@ -98,6 +102,18 @@ const INDEXES: readonly SchemaStatement[] = [
   {
     description: `Index ${NodeLabel.DatasheetChunk}.sourceFile`,
     cypher: `CREATE INDEX datasheetchunk_source_file_index IF NOT EXISTS FOR (d:${NodeLabel.DatasheetChunk}) ON (d.sourceFile)`,
+  },
+  {
+    // Backs the duplicate-draft check, which filters a component's listings by
+    // status on every POST /api/marketplace/listings.
+    description: `Index ${NodeLabel.MarketplaceListing}.status`,
+    cypher: `CREATE INDEX marketplacelisting_status_index IF NOT EXISTS FOR (m:${NodeLabel.MarketplaceListing}) ON (m.status)`,
+  },
+  {
+    // `componentId` is denormalised onto the listing (see entities.ts), and
+    // GET /api/marketplace/listings?component_id=X filters on it directly.
+    description: `Index ${NodeLabel.MarketplaceListing}.componentId`,
+    cypher: `CREATE INDEX marketplacelisting_component_id_index IF NOT EXISTS FOR (m:${NodeLabel.MarketplaceListing}) ON (m.componentId)`,
   },
   {
     // Vector index backing RAG retrieval. Neo4j replaced FAISS as the RAG

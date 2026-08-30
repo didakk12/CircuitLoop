@@ -3,12 +3,14 @@ import {
   ArrowLeft,
   CheckCircle2,
   ScanLine,
+  Tag,
 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 
-import { ApiError, componentIdentity, getScan } from "../api";
-import type { ApiComponent, ApiScan } from "../api";
+import { ApiError, componentIdentity, createMarketplaceDraft, getScan } from "../api";
+import type { ApiComponent, ApiMarketplaceListing, ApiScan } from "../api";
+import MarketplaceListingModal from "../components/MarketplaceListingModal";
 
 interface NaturalSize {
   width: number;
@@ -30,6 +32,31 @@ function Analysis() {
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(scanId !== null);
   const [naturalSize, setNaturalSize] = useState<NaturalSize | null>(null);
+
+  // --- Marketplace listing (additive) ---------------------------------------
+  // Which component is awaiting a Yes/No confirm, the listing the modal is
+  // showing, and any error from creating a draft. All three are null in the
+  // default state, so this feature adds nothing to the page until clicked.
+  const [confirmingComponentId, setConfirmingComponentId] = useState<string | null>(null);
+  const [pendingComponentId, setPendingComponentId] = useState<string | null>(null);
+  const [activeListing, setActiveListing] = useState<ApiMarketplaceListing | null>(null);
+  const [listingError, setListingError] = useState<string | null>(null);
+
+  const startListing = (componentId: string): void => {
+    setConfirmingComponentId(null);
+    setPendingComponentId(componentId);
+    setListingError(null);
+
+    // Creates a draft, or reopens the component's existing active one — the
+    // backend's duplicate-draft policy means clicking twice never spawns a
+    // second listing or discards earlier edits.
+    createMarketplaceDraft(componentId)
+      .then(setActiveListing)
+      .catch((err: unknown) => {
+        setListingError(err instanceof ApiError ? err.message : "Could not prepare a marketplace listing.");
+      })
+      .finally(() => setPendingComponentId(null));
+  };
 
   useEffect(() => {
     if (!scanId) {
@@ -188,45 +215,128 @@ function Analysis() {
 
           <div className="analysis-component-list">
             {components.map((component, index) => (
-              <button
-                key={component.id}
-                className="analysis-component"
-                onClick={() => navigate("/components")}
-              >
-                <div className="analysis-component-id">
-                  {index + 1}
-                </div>
+              <div key={component.id}>
+                <button
+                  className="analysis-component"
+                  onClick={() => navigate("/components")}
+                >
+                  <div className="analysis-component-id">
+                    {index + 1}
+                  </div>
 
-                <div className="analysis-component-info">
-                  <strong>
-                    {componentIdentity(component)}
-                  </strong>
+                  <div className="analysis-component-info">
+                    <strong>
+                      {componentIdentity(component)}
+                    </strong>
 
-                  {component.name && (
-                    <span className="component-marking" title={component.name}>
-                      {component.name}
+                    {component.name && (
+                      <span className="component-marking" title={component.name}>
+                        {component.name}
+                      </span>
+                    )}
+
+                    <span>
+                      {Math.round(component.confidence * 100)}%
+                      identification
                     </span>
+                  </div>
+
+                  {component.salvage_priority && (
+                    <span
+                      className={`priority-dot priority-${component.salvage_priority}`}
+                    />
                   )}
+                </button>
 
-                  <span>
-                    {Math.round(component.confidence * 100)}%
-                    identification
-                  </span>
-                </div>
+                {/* Additive: offer to list this component for sale. Collapsed to
+                    a single link until clicked, and "No" is a pure no-op that
+                    contacts nothing — the draft is only created on "Yes". */}
+                {confirmingComponentId === component.id ? (
+                  <div style={marketplaceConfirmStyle}>
+                    <span>List this component on Marketplace?</span>
 
-                {component.salvage_priority && (
-                  <span
-                    className={`priority-dot priority-${component.salvage_priority}`}
-                  />
+                    <button
+                      type="button"
+                      style={marketplaceActionStyle}
+                      disabled={pendingComponentId === component.id}
+                      onClick={() => startListing(component.id)}
+                    >
+                      {pendingComponentId === component.id ? "Preparing..." : "Yes"}
+                    </button>
+
+                    <button
+                      type="button"
+                      style={marketplaceActionStyle}
+                      onClick={() => setConfirmingComponentId(null)}
+                    >
+                      No
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    style={marketplacePromptStyle}
+                    onClick={() => setConfirmingComponentId(component.id)}
+                  >
+                    <Tag size={12} />
+                    List on Marketplace?
+                  </button>
                 )}
-              </button>
+              </div>
             ))}
           </div>
         </aside>
       </section>
+
+      {listingError && (
+        <p style={{ marginTop: "14px", color: "#ffb4a8", fontSize: "13px" }}>{listingError}</p>
+      )}
+
+      {activeListing && (
+        <MarketplaceListingModal
+          listing={activeListing}
+          onListingChange={setActiveListing}
+          onClose={() => setActiveListing(null)}
+        />
+      )}
     </main>
   );
 }
+
+// Inline styles for the additive marketplace affordance, kept local so this
+// feature adds nothing to the shared stylesheet. Palette matches the
+// surrounding analysis sidebar.
+const marketplacePromptStyle: React.CSSProperties = {
+  display: "inline-flex",
+  alignItems: "center",
+  gap: "6px",
+  margin: "0 0 6px 45px",
+  padding: "4px 0",
+  background: "transparent",
+  border: "none",
+  color: "#8fa397",
+  fontSize: "12px",
+  cursor: "pointer",
+};
+
+const marketplaceConfirmStyle: React.CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  gap: "8px",
+  margin: "0 0 6px 45px",
+  color: "#dbe8df",
+  fontSize: "12px",
+};
+
+const marketplaceActionStyle: React.CSSProperties = {
+  padding: "3px 10px",
+  borderRadius: "7px",
+  border: "1px solid rgba(255, 255, 255, 0.12)",
+  background: "transparent",
+  color: "#8df2a8",
+  font: "inherit",
+  cursor: "pointer",
+};
 
 /** Backend bounding boxes are absolute pixel coordinates; the overlay needs percentages of the rendered image. */
 function toMarkerStyle(

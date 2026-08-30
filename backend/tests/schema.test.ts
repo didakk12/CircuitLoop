@@ -16,6 +16,7 @@ const EXPECTED_CONSTRAINT_NAMES = [
   // RAG corpus. Backs the content-addressed chunk id that makes ingestion
   // idempotent (ml-service/neo4j_store.py::content_id).
   "datasheetchunk_id_unique",
+  "marketplacelisting_id_unique",
 ];
 
 const EXPECTED_INDEX_NAMES = [
@@ -29,6 +30,9 @@ const EXPECTED_INDEX_NAMES = [
   // Vector index backing RAG retrieval — Neo4j replaced FAISS as the
   // similarity-search layer, so this index is now load-bearing.
   "datasheet_chunk_embedding_index",
+  // Back the duplicate-active-draft check and the per-component listing lookup.
+  "marketplacelisting_status_index",
+  "marketplacelisting_component_id_index",
 ];
 
 let neo4jReachable = true;
