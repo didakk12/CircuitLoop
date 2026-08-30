@@ -197,7 +197,7 @@ export async function listListingsForComponent(
       `MATCH (:${NodeLabel.User} {id: $ownerId})-[:${RelationshipType.OWNS}]->(c:${NodeLabel.Component} {id: $componentId})
        OPTIONAL MATCH (c)-[:${RelationshipType.LISTED_AS}]->(m:${NodeLabel.MarketplaceListing})
        WITH c, m ORDER BY m.createdAt ASC
-       RETURN collect(m) AS listings`,
+       RETURN c.id AS componentId, collect(m) AS listings`,
       { componentId, ownerId },
     );
     const record = result.records[0];

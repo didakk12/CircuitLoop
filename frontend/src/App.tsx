@@ -30,7 +30,78 @@ import History from "./pages/History";
 import Telemetry from "./pages/Telemetry";
 import SignIn from "./pages/SignIn";
 import { useAuth } from "./auth/AuthContext";
+import { useHardwareStatus } from "./hooks/useHardwareStatus";
+import type { HardwareState } from "./api";
 
+/**
+ * How each hardware state is presented in the sidebar.
+ *
+ * Rendered from `state`, never from the `connected` boolean: a healthy board
+ * re-enters `probing` on every heartbeat, so a badge driven by `connected`
+ * would blink between "connected" and "disconnected" every few seconds on a
+ * link that is in fact perfectly fine. `probing` therefore reads as the
+ * reassuring "checking" rather than as a loss.
+ */
+const HARDWARE_PRESENTATION: Record<HardwareState, { label: string; color: string }> = {
+  disabled: { label: "Hardware off", color: "#607169" },
+  scanning: { label: "Searching for gateway", color: "#eab308" },
+  connecting: { label: "Connecting to gateway", color: "#eab308" },
+  probing: { label: "Checking gateway", color: "#4ade80" },
+  connected: { label: "Gateway connected", color: "#4ade80" },
+  error_retry: { label: "Gateway lost — retrying", color: "#f87171" },
+};
+
+/**
+ * Live hardware indicator, replacing the previous hardcoded "System ready".
+ *
+ * Its own component rather than a block inside `App` for one concrete
+ * reason: `App` returns early for signed-out visitors, and a hook cannot sit
+ * above a conditional return. Mounting the badge only inside the
+ * authenticated tree also stops it from opening an SSE connection that the
+ * `requireAuth` gate would only ever answer with a 401.
+ */
+function HardwareStatusBadge() {
+  const { state, mode, status } = useHardwareStatus();
+
+  // No frame has arrived yet — say so, instead of asserting a state we
+  // haven't actually been told.
+  if (status === null) {
+    return (
+      <div className="system-status" title="Contacting the CircuitLoop backend…">
+        <span className="status-dot" style={{ background: "#607169", boxShadow: "none" }} />
+        Checking hardware…
+      </div>
+    );
+  }
+
+  // The backend itself is unreachable, so the last status we hold is stale
+  // and must not be presented as current.
+  if (mode === "lost") {
+    return (
+      <div className="system-status" title="The CircuitLoop backend is unreachable; retrying in the background.">
+        <span className="status-dot" style={{ background: "#f87171", boxShadow: "none" }} />
+        Status unavailable
+      </div>
+    );
+  }
+
+  const { label, color } = HARDWARE_PRESENTATION[state];
+  const detail = [
+    status.port_path === null ? null : `Port: ${status.port_path}`,
+    status.last_ack_at === null ? null : `Last ACK: ${new Date(status.last_ack_at).toLocaleTimeString()}`,
+    status.last_error,
+    mode === "poll" ? "Live updates unavailable — polling." : null,
+  ]
+    .filter((line): line is string => line !== null)
+    .join("\n");
+
+  return (
+    <div className="system-status" title={detail.length > 0 ? detail : label}>
+      <span className="status-dot" style={{ background: color, boxShadow: `0 0 10px ${color}b3` }} />
+      {label}
+    </div>
+  );
+}
 
 function App() {
   const location = useLocation();
@@ -197,10 +268,7 @@ function App() {
             Settings
           </a>
 
-          <div className="system-status">
-            <span className="status-dot" />
-            System ready
-          </div>
+          <HardwareStatusBadge />
         </div>
       </aside>
 

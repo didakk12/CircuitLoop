@@ -434,6 +434,167 @@ export async function getCurrentUser(): Promise<ApiUser | null> {
     throw error;
   }
 }
+// --- Hardware gateway (ESP32) ---------------------------------------------
+
+/**
+ * The hardware state machine's states, mirroring the backend's
+ * `HardwareState` (backend/src/types/hardwareDto.ts).
+ *
+ * This is the authoritative status and the thing the UI renders from.
+ * `connected` below is a derived convenience, never an independent truth —
+ * see the note on it.
+ */
+export type HardwareState =
+  | "disabled"
+  | "scanning"
+  | "connecting"
+  | "probing"
+  | "connected"
+  | "error_retry";
+
+/** One `(:Command)` sent to the gateway. */
+export interface ApiHardwareCommand {
+  id: string;
+  action: string;
+  status: "pending" | "success" | "failure" | "timeout";
+  sent_at: string;
+  resolved_at: string | null;
+  ack_received: boolean;
+  /** The board's raw response line, or why one never arrived. */
+  detail: string | null;
+  /** Null for a gateway-level probe; set for a command aimed at a component. */
+  component_id: string | null;
+}
+
+export interface ApiHardwareStatus {
+  state: HardwareState;
+  /**
+   * Exactly `state === "connected"`. Do NOT infer transitions from it: a
+   * healthy board re-enters `probing` on every heartbeat, so watching this
+   * flag alone would render a connect/disconnect flicker that isn't real.
+   * Render from `state`.
+   */
+  connected: boolean;
+  port_path: string | null;
+  last_ack_at: string | null;
+  last_error: string | null;
+  last_command: ApiHardwareCommand | null;
+}
+
+/** GET /api/hardware/status — always 200; "no board" is a state, not an error. */
+export function getHardwareStatus(): Promise<ApiHardwareStatus> {
+  return request<ApiHardwareStatus>("/api/hardware/status");
+}
+
+/**
+ * POST /api/hardware/action — sends a command and resolves only once the
+ * board has acknowledged it, so the returned command is the resolved record.
+ *
+ * Throws `ApiError` with status 409 if a command is already in flight, 503
+ * if no gateway is connected or the ACK timed out, and 404 for a
+ * `componentId` the signed-in user doesn't own.
+ */
+export function sendHardwareAction(
+  action: string,
+  componentId: string | null = null,
+): Promise<ApiHardwareCommand> {
+  return request<ApiHardwareCommand>("/api/hardware/action", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ action, component_id: componentId }),
+  });
+}
+
+export interface HardwareStreamHandlers {
+  /** A status frame arrived — the first is an immediate snapshot, then one per state change. */
+  onStatus: (status: ApiHardwareStatus) => void;
+  /** The stream is live. Used by the reconnect logic to reset its backoff only on a *proven* connection. */
+  onOpen?: () => void;
+}
+
+/**
+ * GET /api/hardware/stream — Server-Sent Events, one frame per state change.
+ *
+ * Uses `fetch` + a reader rather than the browser's `EventSource`, matching
+ * `streamAssistant` above. That is not incidental: `EventSource` cannot be
+ * given `credentials: "include"`, so it would not carry the httpOnly session
+ * cookie to an API on a different origin, and its automatic reconnection
+ * would fight the deliberate backoff-and-fall-back-to-polling policy in
+ * `useHardwareStatus`.
+ *
+ * Resolves when the stream ends (server closed, or `signal` aborted).
+ * Rejects with `ApiError` if the connection could not be established.
+ */
+export async function streamHardwareStatus(
+  handlers: HardwareStreamHandlers,
+  signal?: AbortSignal,
+): Promise<void> {
+  let response: Response;
+  try {
+    response = await fetch(`${API_BASE_URL}/api/hardware/stream`, {
+      headers: { Accept: "text/event-stream" },
+      credentials: "include",
+      signal,
+    });
+  } catch (error) {
+    throw new ApiError(
+      0,
+      error instanceof Error ? `Could not reach the server: ${error.message}` : "Could not reach the server",
+    );
+  }
+
+  if (!response.ok) {
+    const body: unknown = await response.json().catch(() => null);
+    const detailValue =
+      body !== null && typeof body === "object" && "detail" in body ? (body as { detail: unknown }).detail : undefined;
+    const detail = typeof detailValue === "string" ? detailValue : `Request failed with status ${response.status}`;
+    throw new ApiError(response.status, detail);
+  }
+  if (!response.body) {
+    throw new ApiError(0, "The server did not return a readable stream.");
+  }
+
+  handlers.onOpen?.();
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+
+  const handleFrame = (frame: string): void => {
+    const dataLine = frame.split("\n").find((line) => line.startsWith("data:"));
+    if (!dataLine) {
+      return;
+    }
+    const payload = dataLine.slice("data:".length).trim();
+    if (!payload) {
+      return;
+    }
+    try {
+      handlers.onStatus(JSON.parse(payload) as ApiHardwareStatus);
+    } catch {
+      // A truncated or malformed frame is dropped rather than tearing the
+      // stream down — the next state change resends the full status anyway,
+      // since every frame is a complete snapshot rather than a delta.
+    }
+  };
+
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) {
+      break;
+    }
+    buffer += decoder.decode(value, { stream: true });
+    const frames = buffer.split("\n\n");
+    buffer = frames.pop() ?? "";
+    for (const frame of frames) {
+      handleFrame(frame);
+    }
+  }
+  if (buffer.trim()) {
+    handleFrame(buffer);
+  }
+}
+
 // --- Marketplace ----------------------------------------------------------
 
 /**
