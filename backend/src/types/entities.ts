@@ -21,6 +21,7 @@ export const NodeLabel = {
   HealthReport: "HealthReport",
   MonitoringAgent: "MonitoringAgent",
   DatasheetChunk: "DatasheetChunk",
+  MarketplaceListing: "MarketplaceListing",
 } as const;
 
 export type NodeLabel = (typeof NodeLabel)[keyof typeof NodeLabel];
@@ -36,6 +37,8 @@ export const RelationshipType = {
   HAS_COMMAND: "HAS_COMMAND",
   /** (:MonitoringAgent)-[:REPORTED]->(:HealthReport) */
   REPORTED: "REPORTED",
+  /** (:Component)-[:LISTED_AS]->(:MarketplaceListing) */
+  LISTED_AS: "LISTED_AS",
 } as const;
 
 export type RelationshipType = (typeof RelationshipType)[keyof typeof RelationshipType];
@@ -77,6 +80,23 @@ export type CommandStatus = "pending" | "success" | "failure" | "timeout";
 export type MonitoredComponentKey = "cpu" | "ram" | "disk" | "gpu" | "nic" | "other";
 
 export type HealthStatus = "healthy" | "degraded" | "unresponsive" | "unknown";
+
+/**
+ * Lifecycle of a (:MarketplaceListing).
+ *
+ * - `draft` — generated but never sent to a provider.
+ * - `ready_for_manual_post` — the `manual_assist` provider "published" it,
+ *   meaning it produced a link for the user to post by hand. Nothing has
+ *   actually reached a marketplace, so it stays editable.
+ * - `published` — a provider genuinely created the listing upstream. Terminal
+ *   and immutable (see marketplaceService.updateDraft).
+ * - `failed` — the provider threw or timed out. Editable and re-publishable.
+ *
+ * Everything except `published` counts as *active* for the duplicate-draft
+ * policy: one active listing per component at a time, unlimited history once
+ * a listing has actually been published.
+ */
+export type MarketplaceListingStatus = "draft" | "ready_for_manual_post" | "published" | "failed";
 
 // ---------------------------------------------------------------------------
 // Node property shapes
@@ -176,6 +196,45 @@ export interface Command {
    * `command_component_id_index` in `db/schema.ts`.
    */
   componentId: string | null;
+}
+
+/**
+ * (:MarketplaceListing) node properties — one salvage listing generated from a
+ * component, reached as `(:Component)-[:LISTED_AS]->(:MarketplaceListing)`.
+ *
+ * Ownership is never stored here: it is derived through the component, as
+ * `(:User)-[:OWNS]->(:Component)-[:LISTED_AS]->(:MarketplaceListing)`, which is
+ * the only path marketplaceRepository ever matches on.
+ *
+ * `componentId` and `scanId` are both denormalised onto the node deliberately.
+ * `scanId` is captured once at creation from `ComponentDetail.scanId` so the
+ * listing's image URL (`/api/scans/{scanId}/image`) stays stable even if the
+ * component is later re-parented to a different scan — a listing must keep
+ * showing the photo it was written about.
+ */
+export interface MarketplaceListing {
+  id: string;
+  componentId: string;
+  /** The scan whose image this listing advertises. Null when the component was created without one. */
+  scanId: string | null;
+  /** Registry name of the provider this listing targets (see services/marketplaceProviders/registry.ts). */
+  provider: string;
+  status: MarketplaceListingStatus;
+  title: string;
+  description: string;
+  category: string;
+  /** Heuristic estimate, editable before publishing. Never a quoted or verified price. */
+  priceEstimate: number;
+  currency: string;
+  /** Where the listing lives upstream, or the provider's manual-post link. Null until publish is attempted. */
+  externalUrl: string | null;
+  /** The provider's own id for the listing, when it issues one. Null for manual-assist. */
+  externalListingId: string | null;
+  /** Why the last publish attempt failed, including timeouts. Null unless `status` is `failed`. */
+  errorMessage: string | null;
+  createdAt: string; // ISO 8601
+  updatedAt: string; // ISO 8601
+  publishedAt: string | null; // ISO 8601
 }
 
 /** (:MonitoringAgent) node properties (Phase H). */

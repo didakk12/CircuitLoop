@@ -121,6 +121,32 @@ export interface Settings {
    * filenames are stored on the Scan node.
    */
   readonly uploadDir: string;
+  /**
+   * Registry name of the marketplace provider used to publish listings — see
+   * services/marketplaceProviders/registry.ts. Defaults to `manual_assist`,
+   * which makes no network call at all and simply hands the user a pre-filled
+   * Facebook create-listing link. Nothing about marketplace posting requires
+   * Meta credentials in this default mode.
+   */
+  readonly marketplaceProvider: string;
+  /**
+   * Meta app id for the (not yet wired) Graph API provider. Optional in the
+   * same sense as `geminiApiKey`: absent simply means that provider reports
+   * itself unconfigured. Never sent to the frontend.
+   */
+  readonly facebookAppId: string | undefined;
+  /** Page access token for the Graph API provider. Secret; optional; never sent to the frontend. */
+  readonly facebookPageAccessToken: string | undefined;
+  /** Commerce catalog id the Graph API provider would post into. Optional; never sent to the frontend. */
+  readonly facebookCatalogId: string | undefined;
+  /** Where `manual_assist` sends the user to finish posting by hand. Not secret. */
+  readonly facebookMarketplaceCreateUrl: string;
+  /**
+   * Hard ceiling on one `provider.publish()` call. A provider that hangs must
+   * not hold a request open forever, so the publish is raced against this and
+   * the listing is marked `failed` if the timer wins. Default 30s.
+   */
+  readonly marketplacePublishTimeoutMs: number;
 }
 
 const REQUIRED_NEO4J_VARS = [
@@ -311,6 +337,13 @@ export function loadSettings(): Settings {
     jwtExpiresIn: readEnv("JWT_EXPIRES_IN") ?? "7d",
     cookieSecure: (readEnv("COOKIE_SECURE") ?? "false").toLowerCase() === "true",
     uploadDir: readEnv("CIRCUITLOOP_UPLOAD_DIR") ?? "uploads",
+    marketplaceProvider: readEnv("CIRCUITLOOP_MARKETPLACE_PROVIDER") ?? "manual_assist",
+    facebookAppId: readEnv("FACEBOOK_APP_ID"),
+    facebookPageAccessToken: readEnv("FACEBOOK_PAGE_ACCESS_TOKEN"),
+    facebookCatalogId: readEnv("FACEBOOK_CATALOG_ID"),
+    facebookMarketplaceCreateUrl:
+      readEnv("FACEBOOK_MARKETPLACE_CREATE_URL") ?? "https://www.facebook.com/marketplace/create/item",
+    marketplacePublishTimeoutMs: parseIntOrDefault("CIRCUITLOOP_MARKETPLACE_PUBLISH_TIMEOUT_MS", 30_000),
     corsOrigins: (readEnv("CIRCUITLOOP_CORS_ORIGINS") ?? "http://localhost:5173,http://127.0.0.1:5173")
       .split(",")
       .map((origin) => origin.trim())

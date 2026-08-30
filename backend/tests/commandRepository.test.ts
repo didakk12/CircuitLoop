@@ -5,6 +5,7 @@
  * behind. Skips gracefully when no database is reachable.
  */
 
+import neo4j from "neo4j-driver";
 import type { Session, Transaction } from "neo4j-driver";
 import { afterAll, afterEach, beforeEach, describe, expect, it } from "vitest";
 
@@ -77,7 +78,8 @@ describe.skipIf(!reachable)("commandRepository (integration)", () => {
         "MATCH (cmd:Command {id: $id}) RETURN size([(c:Component)-[:HAS_COMMAND]->(cmd) | c]) AS parents",
         { id: command.id },
       );
-      expect(result.records[0]?.get("parents")).toBe(0);
+      const parents: unknown = result.records[0]?.get("parents");
+      expect(neo4j.isInt(parents) ? parents.toNumber() : parents).toBe(0);
     });
 
     it("lists recent gateway commands newest first, excluding component-attached ones", async () => {
