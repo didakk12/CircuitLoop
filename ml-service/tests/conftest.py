@@ -1,10 +1,12 @@
 """
 Shared fixtures for ml-service's pytest suite.
 
-`client` uses the real FastAPI app with its real lifespan (real YOLO model,
-real embedding model, real Neo4j vector index, session-scoped) — these tests
-exercise the actual trained model and the actual indexed corpus, not mocks,
-per ML_SERVICE_INTEGRATION_PLAN.md §9 Phase 6's explicit intent.
+`client` uses the real FastAPI app with its real lifespan (real embedding
+model, real Neo4j vector index, session-scoped) — these tests exercise the
+actual indexed corpus, not mocks, per ML_SERVICE_INTEGRATION_PLAN.md §9
+Phase 6's explicit intent. Detection itself (Gemini) is stubbed per-test
+where exercised, since it's the one dependency that would otherwise need a
+real API key and a real network call.
 
 Neo4j is now a hard dependency of the service (it is the RAG store and vector
 index), so the app cannot start without it. Rather than let that surface as a
@@ -74,8 +76,8 @@ def client(neo4j_settings):
 @pytest.fixture(scope="session")
 def sample_image_bytes() -> bytes:
     """A real image file already in the repo — not a synthetic PCB photo,
-    but real, decodable image bytes suitable for exercising the full
-    decode -> YOLO -> OCR pipeline. See ml-service/README.md for why a real
-    PCB test photo isn't available in this repo."""
+    but real, decodable image bytes suitable for exercising the decode step
+    and the detection endpoints. See ml-service/README.md for why a real PCB
+    test photo isn't available in this repo."""
     image_path = PROJECT_ROOT / "frontend" / "src" / "assets" / "hero.png"
     return image_path.read_bytes()

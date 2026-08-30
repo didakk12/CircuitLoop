@@ -1,20 +1,16 @@
 """
-Gemini vision detection — the PRIMARY component classifier.
+Gemini vision detection — the ONLY component detector this service runs.
 
-`/detect` calls this first; the local YOLO detectors in `detection.py` run
-only as the fallback stage when this raises `GeminiUnavailableError` (see
-`fallback_detection.py`). Nothing here replaces or removes those models:
-this module is purely additive, and `detection.py` is untouched.
+A local YOLO fallback stage (`detection.py`/`fallback_detection.py`) used to
+run when this raised `GeminiUnavailableError`; it was removed to keep this
+service's memory footprint small on a constrained deployment, so a
+`GeminiUnavailableError` now surfaces to `/detect`'s caller directly as a 503
+rather than being caught and retried.
 
 Design notes:
 
-- The public surface deliberately mirrors `DetectionService` (`load()`,
-  `is_loaded`, `source`, `model_path`, `class_names`, `detect()`), so
-  `app.py` — including `/detect/compare` — can hold this alongside the YOLO
-  services in one list with no special-casing.
-
-- It returns the existing `Detection`/`BoundingBox` dataclasses verbatim, so
-  the wire contract downstream (`schemas.py`,
+- It returns the `Detection`/`BoundingBox` dataclasses from `detection_types.py`
+  verbatim, so the wire contract downstream (`schemas.py`,
   `backend/src/types/mlService.ts`, `detectionService.ts`, the Neo4j
   `Component` nodes, the `Analysis.tsx` overlay) is unchanged.
 
@@ -24,8 +20,7 @@ Design notes:
   renders pixel coordinates.
 
 - No Tesseract call: Gemini reads the printed marking itself and returns it in
-  `text`, the same field the OCR gate fills on the YOLO path. The OCR quality
-  gate in `detection.py` stays wired to the YOLO models, unchanged.
+  `text`, the same field an OCR gate used to fill on the now-removed YOLO path.
 
 - `label` and `text` answer two different questions, and the prompt and the
   response schema's field descriptions both say so explicitly. `label` is the
@@ -66,14 +61,13 @@ import cv2
 import httpx
 import numpy as np
 
-from detection import BoundingBox, Detection
+from detection_types import BoundingBox, Detection
 
 logger = logging.getLogger(__name__)
 
 GEMINI_API_BASE = "https://generativelanguage.googleapis.com/v1beta/models"
 
-# Stable identifier attributing a detection to this model, matching the
-# SOURCE_* constants in detection.py.
+# Stable identifier attributing a detection to this model.
 SOURCE_GEMINI = "gemini"
 
 # Gemini normalises bounding boxes to this range on both axes.
@@ -81,9 +75,8 @@ GEMINI_BOX_SCALE = 1000
 
 # The backend's complete ComponentType union (backend/src/types/entities.ts).
 # NOT a restriction on what Gemini may return — it is only the set of labels
-# that have a stable `class_id`, kept so `/detect/compare` can report this
-# service's classes the way it reports the YOLO ones. Any other label Gemini
-# produces is kept verbatim and carries UNMAPPED_CLASS_ID.
+# that have a stable `class_id`. Any other label Gemini produces is kept
+# verbatim and carries UNMAPPED_CLASS_ID.
 COMPONENT_LABELS: tuple[str, ...] = (
     "resistor",
     "capacitor",
@@ -339,10 +332,9 @@ class GeminiUnavailableError(RuntimeError):
 
     Covers every non-image failure mode — unconfigured key, network error,
     timeout, non-200 status, unparseable or unexpectedly-shaped body. `app.py`
-    catches exactly this to move on to the YOLO fallback stage, so a genuinely
-    invalid *image* must NOT be reported through it: that stays a `ValueError`,
-    matching `DetectionService.detect`, and is surfaced to the client as a 400
-    rather than silently retried against another model.
+    catches exactly this and turns it into a 503 for `/detect`'s caller. A
+    genuinely invalid *image* must NOT be reported through it: that stays a
+    `ValueError`, surfaced to the client as a 400 instead.
 
     Messages are kept generic and never include the response body or the key.
     """
@@ -350,7 +342,7 @@ class GeminiUnavailableError(RuntimeError):
 
 class GeminiDetectionService:
     """Calls Gemini's vision API once per image. Stateless apart from config —
-    there is no model to keep warm, unlike `DetectionService`."""
+    there is no local model to keep warm."""
 
     def __init__(self, api_key: str, model: str, timeout_s: float = 30.0) -> None:
         self._api_key = api_key
@@ -368,8 +360,7 @@ class GeminiDetectionService:
 
     @property
     def model_path(self) -> Path:
-        """No local weights file; the model id stands in so `/detect/compare`
-        can report this service the same way it reports the YOLO ones."""
+        """No local weights file; the model id stands in for it."""
         return Path(self._model)
 
     @property
@@ -381,8 +372,7 @@ class GeminiDetectionService:
         return dict(enumerate(COMPONENT_LABELS))
 
     def load(self) -> None:
-        """No weights to read — this only asserts the service is configured,
-        keeping the same startup call shape as `DetectionService.load()`."""
+        """No weights to read — this only asserts the service is configured."""
         if not self._api_key:
             raise GeminiUnavailableError("GEMINI_API_KEY is not set")
         self._loaded = True
@@ -392,9 +382,9 @@ class GeminiDetectionService:
         if not self._loaded or not self._api_key:
             raise GeminiUnavailableError("Gemini detection is not configured")
 
-        # Decoded locally for two reasons: it validates the upload the same way
-        # the YOLO path does (so a corrupt file fails as a 400 before any
-        # network call), and Gemini's normalised boxes need real pixel
+        # Decoded locally for two reasons: it validates the upload (so a
+        # corrupt file fails as a 400 before any network call), and Gemini's
+        # normalised boxes need real pixel
         # dimensions to be converted back.
         image = cv2.imdecode(np.frombuffer(image_bytes, dtype=np.uint8), cv2.IMREAD_COLOR)
         if image is None:
@@ -469,8 +459,7 @@ class GeminiDetectionService:
             box = item.get("box_2d")
             if not isinstance(label, str) or not isinstance(box, list) or len(box) != 4:
                 # One malformed entry is skipped rather than failing the whole
-                # image, mirroring how one bad OCR crop is handled on the YOLO
-                # path.
+                # image.
                 logger.warning("Skipping malformed Gemini detection entry")
                 continue
 
@@ -587,9 +576,9 @@ def _to_pixel_box(
 ) -> BoundingBox | None:
     """Converts one 0-1000 normalised `[ymin, xmin, ymax, xmax]` box to pixels.
 
-    Clamped to the image exactly as `DetectionService.detect` clamps YOLO's
-    boxes. Returns None for a degenerate (zero-area) box rather than storing a
-    marker the UI would draw as an invisible or inverted rectangle.
+    Clamped to the image. Returns None for a degenerate (zero-area) box rather
+    than storing a marker the UI would draw as an invisible or inverted
+    rectangle.
     """
     x1 = int(round(x_min / GEMINI_BOX_SCALE * width))
     y1 = int(round(y_min / GEMINI_BOX_SCALE * height))

@@ -51,18 +51,14 @@ Install these first. Run each check command to confirm it worked.
 | **Node.js** | 20.19 or newer (22.13+ recommended) | `node --version` |
 | **Python** | 3.11 or newer | `python --version` |
 | **Neo4j** | any recent 5.x, Community Edition | open <http://localhost:7474> after installing |
-| **Tesseract OCR** | any (optional, recommended) | `tesseract --version` |
 
 Where to get them:
 
 - **Node.js** — <https://nodejs.org/>
 - **Python** — <https://www.python.org/downloads/> (tick "Add Python to PATH")
 - **Neo4j** — <https://neo4j.com/download/> (Neo4j Desktop is the easiest option)
-- **Tesseract** — <https://github.com/UB-Mannheim/tesseract/wiki>
 
-**About Tesseract:** it reads the text printed on components. Without it,
-everything still works — components just won't have names read from their
-markings.
+**A Gemini API key is required for component detection** — get one at <https://aistudio.google.com/apikey> and set `GEMINI_API_KEY` in `ml-service/.env` (see step 4). There is no local fallback model, so without it `/detect` returns an error.
 
 **Internet:** the first time you start the ML service it downloads a small
 text-embedding model. After that it works offline.
@@ -147,26 +143,17 @@ NEO4J_PASSWORD=your-password-here
 
 The ML service **will not start** if these three are missing or empty.
 
-Add your Gemini key in the same file to enable the primary component detector:
+Add your Gemini key in the same file to enable component detection:
 
 ```dotenv
 GEMINI_API_KEY=your-key-here
 ```
 
-Component detection runs in two stages. Gemini analyses the uploaded image and
-classifies the components; if it is unconfigured, times out, or errors, the
-service falls back to running the project's own trained YOLO11s model and the
-complementary Hugging Face YOLOv8s model together, merging their results. The
-service starts and detection keeps working whichever of these is available —
-only losing *all* of them stops detection.
-
-Optionally, if Tesseract is installed somewhere unusual, set its path in the
-same file. It is used for reading component markings on the YOLO fallback path;
-Gemini reads markings itself.
-
-```dotenv
-TESSERACT_CMD=C:\Path\To\tesseract.exe
-```
+Gemini is the only detector — it analyses the uploaded image, classifies the
+components, and reads their printed markings itself, all in one call. There is
+no local fallback model: the ML service still starts without a key (so
+`/search` keeps working for the assistant), but `/detect` returns an error
+until one is set.
 
 **Step 4.3 — Frontend (optional).**
 
@@ -455,7 +442,7 @@ Invoke-RestMethod http://127.0.0.1:8001/health   # status=ok, model_loaded=True,
    port, add it to `CIRCUITLOOP_CORS_ORIGINS` in `backend/.env` and restart the
    backend.
 
-### Python says "No module named fastapi" (or ultralytics, neo4j...)
+### Python says "No module named fastapi" (or neo4j, sentence_transformers...)
 
 You are using the wrong Python. Always run `.venv\Scripts\python.exe`, not
 plain `python`.

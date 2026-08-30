@@ -1,13 +1,13 @@
 """
-`gemini_detection.py` — the primary detector.
+`gemini_detection.py` — the only detector.
 
 Every HTTP call is stubbed: these tests never reach the network and never need
 an API key. What they pin is the translation layer, which is where the real
 risk lives — Gemini's 0-1000 normalised `[ymin, xmin, ymax, xmax]` boxes have
 to become the clamped pixel coordinates the database stores and `Analysis.tsx`
-draws, and every failure mode has to be classified correctly as either "fall
-back" (`GeminiUnavailableError`) or "the client sent a bad image"
-(`ValueError`).
+draws, and every failure mode has to be classified correctly as either
+"detection unavailable" (`GeminiUnavailableError`, a 503) or "the client sent
+a bad image" (`ValueError`, a 400).
 """
 
 import json
@@ -617,8 +617,7 @@ def test_thought_only_parts_are_ignored_when_reading_the_response(monkeypatch, i
 
 
 def test_an_undecodable_image_raises_value_error_not_unavailable(monkeypatch):
-    """A bad upload is a client error: it must become a 400, never a silent
-    retry against the fallback models."""
+    """A bad upload is a client error: it must become a 400, never a 503."""
     service = loaded_service(monkeypatch, response=_StubResponse(body=gemini_body([])))
 
     with pytest.raises(ValueError):

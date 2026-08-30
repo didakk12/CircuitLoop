@@ -1,18 +1,21 @@
-# CircuitLoop ML service — scoped to what YOLO detection / OCR / RAG
+# CircuitLoop ML service — scoped to what Gemini-based detection / RAG
 # retrieval genuinely need. Deliberately excludes sqlalchemy and anything
 # CRUD-related — that responsibility is fully owned by the TypeScript
 # backend now (see ML_SERVICE_INTEGRATION_PLAN.md §1's dependency-evidence
 # finding: the old Python branches had one undifferentiated dependency list
 # for both CRUD and ML; this file is the first time those are separated).
+#
+# No local detection model: a former local YOLO+OCR fallback stage (and its
+# ultralytics/pytesseract/Pillow dependencies) was removed to keep this
+# service's memory footprint small on a constrained deployment — Gemini is
+# the only detector now. opencv-python and numpy stay: gemini_detection.py
+# uses both directly for image decoding, independent of the removed stage.
 
 fastapi>=0.115
 uvicorn[standard]>=0.34
 python-multipart>=0.0.20    # required by FastAPI for multipart/form-data (image upload) parsing
 
-ultralytics>=8.3             # YOLO detection
-opencv-python>=4.10          # image decoding/cropping for detection + OCR preprocessing
-pytesseract>=0.3.13          # OCR wrapper — requires the Tesseract OCR binary installed separately (not a pip package)
-Pillow>=11.0
+opencv-python>=4.10          # image decoding (gemini_detection.py)
 
 sentence-transformers>=5.0   # RAG embeddings (corpus at ingest time, queries at runtime)
 neo4j>=6.0                   # RAG corpus store + vector similarity search (replaced faiss-cpu)

@@ -16,11 +16,11 @@ Two groups of settings live here:
     a clear "not configured" message instead of a stack trace; `app.py` turns
     that None into a fail-fast startup error.
 
-  - Gemini settings for the primary detector (gemini_detection.py). The API
+  - Gemini settings for the only detector (gemini_detection.py). The API
     key is a secret and lives only in the git-ignored `.env`, never in code.
     `load_gemini_settings()` returns None when unconfigured rather than
-    raising: unlike Neo4j this is NOT fail-fast, because detection still has
-    the combined YOLO fallback stage to fall back to.
+    raising: unlike Neo4j this is NOT fail-fast, so `/search` still works
+    when detection is unconfigured — only `/detect` becomes unavailable.
 """
 
 from __future__ import annotations
@@ -48,9 +48,9 @@ DEFAULT_MAX_IMAGE_BYTES = 10 * 1024 * 1024  # 10MB, matches the TS-side upload l
 # without touching code.
 DEFAULT_GEMINI_MODEL = "gemini-3.5-flash-lite"
 # Measured: a dense PCB photo takes ~6s end to end, but tail latency has been
-# observed past 30s. Since a timeout silently demotes the request to the YOLO
-# fallback, the ceiling is set well above the typical case rather than close
-# to it.
+# observed past 30s. Since a timeout makes /detect unavailable for that
+# request (there is no local fallback), the ceiling is set well above the
+# typical case rather than close to it.
 DEFAULT_GEMINI_TIMEOUT_S = 60.0
 
 
@@ -117,8 +117,8 @@ def load_neo4j_settings() -> Neo4jSettings | None:
 def load_gemini_settings() -> GeminiSettings | None:
     """Reads the Gemini detector's settings, or returns None when the API key
     is absent. Deliberately not fail-fast, unlike `load_neo4j_settings()`'s
-    caller: an unconfigured key means detection runs on the combined YOLO
-    fallback stage, which is a degraded but working service."""
+    caller: an unconfigured key disables `/detect` but must not take the
+    unrelated `/search` path down with it."""
     api_key = os.getenv("GEMINI_API_KEY")
     if api_key is None or api_key == "":
         return None
@@ -131,9 +131,9 @@ def load_gemini_settings() -> GeminiSettings | None:
 
 
 MISSING_GEMINI_MESSAGE = (
-    "GEMINI_API_KEY is not set — the primary Gemini detector is disabled and every "
-    "/detect request will use the combined YOLO fallback stage. Copy "
-    "ml-service/.env.example to ml-service/.env and set GEMINI_API_KEY to enable it."
+    "GEMINI_API_KEY is not set — detection is disabled and every /detect request "
+    "will return 503. Copy ml-service/.env.example to ml-service/.env and set "
+    "GEMINI_API_KEY to enable it."
 )
 
 MISSING_NEO4J_MESSAGE = (

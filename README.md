@@ -9,7 +9,7 @@ Four processes run together:
 | Part | What it does | Address |
 |---|---|---|
 | **Neo4j** | Database — application data *and* the RAG corpus + vector index | `localhost:7687` |
-| **ML service** (Python, `ml-service/`) | YOLO component detection + OCR + Neo4j vector retrieval | `127.0.0.1:8001` |
+| **ML service** (Python, `ml-service/`) | Gemini component detection + Neo4j vector retrieval | `127.0.0.1:8001` |
 | **Backend** (Node.js, `backend/`) | REST API, orchestrates everything | `127.0.0.1:8000` |
 | **Frontend** (React + Vite, `frontend/`) | The web UI | `localhost:5173` |
 

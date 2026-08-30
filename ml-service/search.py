@@ -71,8 +71,8 @@ class SearchServiceNotLoadedError(RuntimeError):
 
 class SearchService:
     """Loads the embedding model once and serves searches against the Neo4j
-    vector index -- same "load once, reuse for the process lifetime" pattern
-    as `DetectionService` in detection.py, for the same reason.
+    vector index -- a long-lived service keeps this model warm in memory
+    instead of reloading it per request.
 
     The `RagStore` is injected so tests can supply their own (pointing at the
     same live database) without this class owning connection policy.

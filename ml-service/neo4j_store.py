@@ -186,8 +186,8 @@ class RagStore:
     """Owns the Neo4j driver used for RAG storage and retrieval.
 
     Same "connect once, reuse for the process lifetime" shape as
-    DetectionService/SearchService -- the driver pools connections internally,
-    so reuse here means reusing the one Driver.
+    GeminiDetectionService/SearchService -- the driver pools connections
+    internally, so reuse here means reusing the one Driver.
     """
 
     def __init__(self, uri: str, username: str, password: str, database: str | None = None) -> None:
