@@ -11,6 +11,7 @@ import { useNavigate } from "react-router-dom";
 import { ApiError, componentIdentity, createMarketplaceDraft, getScan } from "../api";
 import type { ApiComponent, ApiMarketplaceListing, ApiScan } from "../api";
 import MarketplaceListingModal from "../components/MarketplaceListingModal";
+import { isKnownI2cComponent } from "../knownI2cParts";
 
 interface NaturalSize {
   width: number;
@@ -227,6 +228,9 @@ function Analysis() {
                   <div className="analysis-component-info">
                     <strong>
                       {componentIdentity(component)}
+                      {isKnownI2cComponent(component) && (
+                        <span style={i2cBadgeStyle}>I2C</span>
+                      )}
                     </strong>
 
                     {component.name && (
@@ -336,6 +340,24 @@ const marketplaceActionStyle: React.CSSProperties = {
   color: "#8df2a8",
   font: "inherit",
   cursor: "pointer",
+};
+
+// Badge for a component whose printed marking matches a known I2C part (see
+// knownI2cParts.ts). Kept local for the same reason as the marketplace
+// styles above — an additive UI touch that shouldn't need a shared class.
+const i2cBadgeStyle: React.CSSProperties = {
+  display: "inline-block",
+  marginLeft: "8px",
+  padding: "1px 7px",
+  borderRadius: "5px",
+  border: "1px solid rgba(75, 159, 234, 0.4)",
+  background: "rgba(75, 159, 234, 0.15)",
+  color: "#4b9fea",
+  fontFamily: "ui-monospace, \"SFMono-Regular\", \"Cascadia Code\", Menlo, monospace",
+  fontSize: "10px",
+  fontWeight: 600,
+  letterSpacing: "0.03em",
+  verticalAlign: "middle",
 };
 
 /** Backend bounding boxes are absolute pixel coordinates; the overlay needs percentages of the rendered image. */
